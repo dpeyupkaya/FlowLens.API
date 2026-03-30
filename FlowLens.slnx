@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".gitignore" />
+  </Folder>
+  <Folder Name="/Src/" />
+  <Folder Name="/Src/Core/">
+    <Project Path="FlowLens.Application/FlowLens.Application.csproj" />
+    <Project Path="FlowLens.Domain/FlowLens.Domain.csproj" />
+  </Folder>
+  <Folder Name="/Src/External/">
+    <Project Path="FlowLens.Infrastructure/FlowLens.Infrastructure.csproj" />
+    <Project Path="FlowLens.Persistence/FlowLens.Persistence.csproj" />
+  </Folder>
+  <Project Path="FlowLens.API/FlowLens.API.csproj" />
+</Solution>

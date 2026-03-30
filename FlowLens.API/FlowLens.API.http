@@ -1,0 +1,6 @@
+@FlowLens.API_HostAddress = http://localhost:5225
+
+GET {{FlowLens.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
