@@ -3,6 +3,9 @@ namespace FlowLens.Application.Interfaces.External
 {
     public interface IGitHubService
     {
-        Task<GitHubUserResponse> GetUserInfoAsync(string code);
+        Task<(GitHubUserResponse User, string AccessToken)> GetUserAndTokenAsync(string code);
+
+        Task<List<GitHubRepoResponse>> GetUserCSharpReposAsync(string accessToken);
+        Task DownloadAndExtractRepoAsync(string repoUrl, string accessToken, string extractPath);
     }
 }

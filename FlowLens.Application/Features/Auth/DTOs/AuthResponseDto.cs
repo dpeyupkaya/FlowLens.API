@@ -6,5 +6,6 @@ public record AuthResponseDto(
     string Token,
     string Username,
     string? AvatarUrl,
-    string? Email
+    string? Email,
+    string GitHubAccessToken
 );

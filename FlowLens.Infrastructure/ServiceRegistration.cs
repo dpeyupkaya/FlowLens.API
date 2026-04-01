@@ -1,6 +1,8 @@
 ﻿using FlowLens.Application.Interfaces.Auth;
 using FlowLens.Application.Interfaces.External;
+using FlowLens.Application.Interfaces.Infrastructure;
 using FlowLens.Infrastructure.Auth;
+using FlowLens.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
@@ -22,6 +24,8 @@ namespace FlowLens.Infrastructure
             services.AddScoped<ITokenService, TokenService>();
 
             services.AddHttpClient<IGitHubService, GitHubService>();
+
+            services.AddScoped<ICodeAnalyzerService, RoslynAnalyzerService>();
 
             return services;
         }

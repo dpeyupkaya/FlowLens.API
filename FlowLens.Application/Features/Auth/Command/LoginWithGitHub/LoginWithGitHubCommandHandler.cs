@@ -25,15 +25,13 @@ public class LoginWithGitHubCommandHandler : IRequestHandler<LoginWithGitHubComm
 
     public async Task<AuthResponseDto> Handle(LoginWithGitHubCommand request, CancellationToken cancellationToken)
     {
-       
-        var githubUser = await _githubService.GetUserInfoAsync(request.Code);
+        // 1. Artık servisten HEM kullanıcıyı HEM DE GitHub asıl token'ını alıyoruz
+        var (githubUser, githubAccessToken) = await _githubService.GetUserAndTokenAsync(request.Code);
 
-       
         var user = await _userRepository.GetByGitHubIdAsync(githubUser.Id.ToString());
 
         if (user == null)
         {
-        
             user = new User
             {
                 GitHubId = githubUser.Id.ToString(),
@@ -43,26 +41,25 @@ public class LoginWithGitHubCommandHandler : IRequestHandler<LoginWithGitHubComm
                 LastLoginAt = DateTimeOffset.UtcNow,
                 DailyAnalysisCount = 0
             };
-
             await _userRepository.AddAsync(user);
         }
         else
         {
-          
             user.LastLoginAt = DateTimeOffset.UtcNow;
             user.AvatarUrl = githubUser.AvatarUrl;
-
             await _userRepository.UpdateAsync(user);
         }
 
-       
-        var token = _tokenService.CreateToken(user);
+        // 2. Senin uygulamanın kendi JWT'sini üretiyoruz
+        var flowLensToken = _tokenService.CreateToken(user);
 
+        // 3. Her iki token'ı da dışarı gönderiyoruz
         return new AuthResponseDto(
-            token,
+            flowLensToken,
             user.Username,
             user.AvatarUrl,
-            user.Email
+            user.Email,
+            githubAccessToken // Şifrelenmesi için Controller'a gidiyor!
         );
     }
 }
