@@ -1,5 +1,6 @@
 using FlowLens.Application;
 using FlowLens.Infrastructure;
+using FlowLens.Infrastructure.Hubs;
 using FlowLens.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -9,13 +10,12 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration);
 
 builder.Services.AddCors(options => {
-    options.AddDefaultPolicy(policy => {
+    options.AddPolicy("FlowLensCors", policy => {
         policy.WithOrigins("https://localhost:5173")
               .AllowAnyHeader()
               .AllowAnyMethod()
@@ -24,10 +24,9 @@ builder.Services.AddCors(options => {
 });
 
 builder.Services.AddControllers();
-builder.Services.AddOpenApi(options =>
-{
-    options.AddDocumentTransformer((document, context, cancellationToken) =>
-    {
+
+builder.Services.AddOpenApi(options => {
+    options.AddDocumentTransformer((document, context, cancellationToken) => {
         var scheme = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.Http,
@@ -35,32 +34,23 @@ builder.Services.AddOpenApi(options =>
             In = ParameterLocation.Header,
             Scheme = "bearer",
             BearerFormat = "JWT",
-            Description = "JWT Authorization header using the Bearer scheme."
+            Description = "'Bearer {token}' şeklinde gir."
         };
-
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes.Add("Bearer", scheme);
-
-        document.SecurityRequirements.Add(new OpenApiSecurityRequirement
-        {
-            [new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
-            }] = Array.Empty<string>()
+        document.SecurityRequirements.Add(new OpenApiSecurityRequirement {
+            { new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }, Array.Empty<string>() }
         });
-
         return Task.CompletedTask;
     });
 });
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-builder.Services.AddAuthentication(options =>
-{
+builder.Services.AddAuthentication(options => {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
-.AddJwtBearer(options =>
-{
+.AddJwtBearer(options => {
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -72,7 +62,6 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Secret"]!))
     };
 });
-
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -80,15 +69,18 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.MapScalarApiReference();
+    app.MapScalarApiReference(); 
 }
 
 app.UseHttpsRedirection();
-app.UseCors();
+
+app.UseCors("FlowLensCors");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHub<AnalysisHub>("/analysisHub");
 
 app.Run();

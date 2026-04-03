@@ -17,7 +17,6 @@ public class GitHubService : IGitHubService
         _configuration = configuration;
     }
 
-    // YENİ VE KRİTİK DEĞİŞİKLİK: Artık hem User hem de asıl GitHub Access Token dönüyor
     public async Task<(GitHubUserResponse User, string AccessToken)> GetUserAndTokenAsync(string code)
     {
         var tokenResponse = await GetAccessTokenAsync(code);
@@ -26,7 +25,7 @@ public class GitHubService : IGitHubService
         return (user, tokenResponse.AccessToken);
     }
 
-    public async Task<List<GitHubRepoResponse>> GetUserCSharpReposAsync(string accessToken)
+    public async Task<List<GitHubRepoResponse>> GetUserReposAsync(string accessToken)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/user/repos?type=public&per_page=100");
 
@@ -39,7 +38,7 @@ public class GitHubService : IGitHubService
         var allRepos = await response.Content.ReadFromJsonAsync<List<GitHubRepoResponse>>()
                        ?? new List<GitHubRepoResponse>();
 
-        return allRepos.Where(repo => repo.Language == "C#").ToList();
+        return allRepos;
     }
 
     private async Task<GitHubTokenResponse> GetAccessTokenAsync(string code)

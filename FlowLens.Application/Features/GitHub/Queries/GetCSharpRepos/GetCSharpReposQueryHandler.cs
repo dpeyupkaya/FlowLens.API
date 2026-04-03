@@ -14,7 +14,7 @@ namespace FlowLens.Application.Features.GitHub.Queries.GetCSharpRepos
 
         public async Task<List<GitHubRepoResponse>> Handle(GetCSharpReposQuery request, CancellationToken cancellationToken)
         {
-            var repos = await _gitHubService.GetUserCSharpReposAsync(request.AccessToken);
+            var repos = await _gitHubService.GetUserReposAsync(request.AccessToken);
 
             return repos ?? new List<GitHubRepoResponse>();
         }

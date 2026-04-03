@@ -1,35 +1,33 @@
-﻿using Microsoft.CodeAnalysis.CSharp;
-using FlowLens.Application.Interfaces.Infrastructure;
+﻿using FlowLens.Application.Interfaces.Infrastructure;
 using FlowLens.Application.Features.Analysis.DTOs;
-using FlowLens.Infrastructure.Analysis;
+using FlowLens.Infrastructure.Analysis.Core;
 
 namespace FlowLens.Infrastructure.Services;
 
 public class RoslynAnalyzerService : ICodeAnalyzerService
 {
+    private readonly RoslynAnalyzerEngine _engine;
+
+    public RoslynAnalyzerService(RoslynAnalyzerEngine engine)
+    {
+        _engine = engine;
+    }
+
+    public async Task<CodeGraphDto> AnalyzeAsync(string path)
+    {
+        return await _engine.AnalyzeAsync(path);
+    }
+
     public async Task<CodeGraphDto> AnalyzeStructureAsync(string directoryPath)
     {
-        var allNodes = new List<NodeDto>();
-        var allEdges = new List<EdgeDto>();
+        var result = await _engine.AnalyzeAsync(directoryPath);
 
-        var files = Directory.GetFiles(directoryPath, "*.cs", SearchOption.AllDirectories);
-
-        foreach (var file in files)
+        if (result.Nodes.Count > 5000)
         {
-            var code = await File.ReadAllTextAsync(file);
-            var tree = CSharpSyntaxTree.ParseText(code);
-            var root = await tree.GetRootAsync();
-
-            var walker = new CodeStructureWalker();
-            walker.Visit(root);
-
-            allNodes.AddRange(walker.Nodes);
-            allEdges.AddRange(walker.Edges);
+            var limitedNodes = result.Nodes.Take(5000).ToList();
+            return new CodeGraphDto(limitedNodes, result.Edges);
         }
 
-        return new CodeGraphDto(
-            allNodes.DistinctBy(n => n.Id).ToList(),
-            allEdges.DistinctBy(e => new { e.Source, e.Target }).ToList()
-        );
+        return result;
     }
 }

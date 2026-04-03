@@ -1,6 +1,7 @@
 ﻿using FlowLens.Application.Interfaces.Auth;
 using FlowLens.Application.Interfaces.External;
 using FlowLens.Application.Interfaces.Infrastructure;
+using FlowLens.Infrastructure.Analysis.Core;
 using FlowLens.Infrastructure.Auth;
 using FlowLens.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
@@ -20,11 +21,11 @@ namespace FlowLens.Infrastructure
         {
             services.Configure<JwtSettings>(configuration.GetSection("JwtSettings"));
 
-          
+            services.AddScoped<IAnalysisProgressService, AnalysisProgressService>();
             services.AddScoped<ITokenService, TokenService>();
-
+            services.AddScoped<RoslynAnalyzerEngine>();
             services.AddHttpClient<IGitHubService, GitHubService>();
-
+            services.AddSignalR();
             services.AddScoped<ICodeAnalyzerService, RoslynAnalyzerService>();
 
             return services;
