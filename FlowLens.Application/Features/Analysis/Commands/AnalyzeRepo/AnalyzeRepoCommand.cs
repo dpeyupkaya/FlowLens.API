@@ -3,4 +3,4 @@ using MediatR;
 
 namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo;
 
-public record AnalyzeRepoCommand(string RepoUrl, string AccessToken) : IRequest<AnalysisReportDto>;
+public record AnalyzeRepoCommand(string RepoUrl, Guid UserId) : IRequest<AnalysisReportDto>;

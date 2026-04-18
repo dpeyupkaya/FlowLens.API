@@ -4,6 +4,7 @@ using FlowLens.Application.Features.Analysis.DTOs;
 using FlowLens.Infrastructure.Analysis.Walkers;
 using FlowLens.Infrastructure.Hubs;
 using Microsoft.AspNetCore.SignalR;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -31,23 +32,25 @@ public class RoslynAnalyzerEngine
 
         var allNodes = new List<NodeDto>();
         var allEdges = new List<EdgeDto>();
+
         var allMetrics = new Dictionary<string, (int Complexity, int Lines)>();
 
         var files = GetProjectFiles(directoryPath);
         await SendLog($"[BİLGİ] {files.Count} adet C# dosyası tespit edildi. Bellek içi derleme hazırlanıyor...");
 
-        var syntaxTrees = new List<SyntaxTree>();
-        foreach (var file in files)
+        var syntaxTreeTasks = files.Select(async file =>
         {
             var code = await File.ReadAllTextAsync(file);
-            syntaxTrees.Add(CSharpSyntaxTree.ParseText(code, path: file));
-        }
+            return CSharpSyntaxTree.ParseText(code, path: file);
+        });
+        var syntaxTrees = (await Task.WhenAll(syntaxTreeTasks)).ToList();
 
         var compilation = CSharpCompilation.Create("FlowLensCompilation")
             .AddSyntaxTrees(syntaxTrees)
             .AddReferences(
                 MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location)
+                MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location) 
             );
 
         await SendLog("[BİLGİ] Sanal derleme tamamlandı. Mimari bağlar (Semantic) çözümleniyor...");
@@ -68,15 +71,11 @@ public class RoslynAnalyzerEngine
             var structWalker = new StructureWalker(semanticModel);
             structWalker.Visit(root);
             allNodes.AddRange(structWalker.Nodes);
-            allEdges.AddRange(structWalker.Edges);
+            allEdges.AddRange(structWalker.Edges); 
+            var relationshipWalker = new RelationshipWalker(semanticModel);
+            relationshipWalker.Visit(root);
+            allEdges.AddRange(relationshipWalker.Edges);
 
-            var depWalker = new DependencyWalker(semanticModel);
-            depWalker.Visit(root);
-            allEdges.AddRange(depWalker.Edges);
-
-            var inhWalker = new InheritanceWalker(semanticModel);
-            inhWalker.Visit(root);
-            allEdges.AddRange(inhWalker.Edges);
             var metricsWalker = new MetricsWalker(semanticModel);
             metricsWalker.Visit(root);
             foreach (var metric in metricsWalker.MethodMetrics)
@@ -85,36 +84,24 @@ public class RoslynAnalyzerEngine
             }
         }
 
-        await SendLog("[BİLGİ] Gürültü ve dış bağımlılıklar filtreleniyor...");
-
-        var forbiddenKeywords = new[] {
-            "System", "Microsoft", "Newtonsoft", "Moq", "Xunit", "NUnit", "AutoMapper", "Test"
-        };
+        await SendLog("[BİLGİ] Yapısal bütünlük kontrolü ve akıllı filtreleme devrede...");
 
         allNodes.RemoveAll(n =>
-            forbiddenKeywords.Any(k =>
-                (n.Metadata?.GetValueOrDefault("Namespace", "") ?? "").StartsWith(k, StringComparison.OrdinalIgnoreCase) ||
-                n.Id.Contains(k, StringComparison.OrdinalIgnoreCase)
-            )
+            n.Name.EndsWith("Test", StringComparison.OrdinalIgnoreCase) ||
+            n.Name.EndsWith("Tests", StringComparison.OrdinalIgnoreCase) ||
+            n.Id.Contains(".Tests.")
         );
 
-        allEdges.RemoveAll(e =>
-            forbiddenKeywords.Any(k =>
-                e.Source.Contains(k, StringComparison.OrdinalIgnoreCase) ||
-                e.Target.Contains(k, StringComparison.OrdinalIgnoreCase)
-            )
-        );
+        var projectNodeIds = new HashSet<string>(allNodes.Select(n => n.Id));
+
+        allEdges.RemoveAll(e => !projectNodeIds.Contains(e.Source) || !projectNodeIds.Contains(e.Target));
 
         var distinctNodes = allNodes.DistinctBy(n => n.Id).ToList();
         var distinctEdges = allEdges.DistinctBy(e => new { e.Source, e.Target, e.RelationType }).ToList();
 
-        await SendLog(" Galaksi inşa ediliyor, son rütuşlar yapılıyor...");
+        await SendLog("[BAŞARI] Analiz başarıyla tamamlandı. Dış bağımlılıklar izole edildi, saf mimari haritası hazır.");
 
-        var finalNodes = ResolveMissingNodes(distinctNodes, distinctEdges);
-
-        await SendLog("[BAŞARI] Yapısal ve anlamsal analiz işlemleri sorunsuz tamamlandı.");
-
-        return new CodeGraphDto(finalNodes, distinctEdges);
+        return new CodeGraphDto(distinctNodes, distinctEdges);
     }
 
     private List<string> GetProjectFiles(string directoryPath)
@@ -127,28 +114,5 @@ public class RoslynAnalyzerEngine
                         !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) &&
                         !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase))
             .ToList();
-    }
-
-    private List<NodeDto> ResolveMissingNodes(List<NodeDto> nodes, List<EdgeDto> edges)
-    {
-        var existingNodeIds = new HashSet<string>(nodes.Select(n => n.Id));
-        var missingTargets = edges
-            .Where(e => !existingNodeIds.Contains(e.Target))
-            .Select(e => e.Target)
-            .Distinct()
-            .ToList();
-
-        foreach (var targetId in missingTargets)
-        {
-            nodes.Add(new NodeDto(
-                targetId,
-                targetId.Split('.').Last(), 
-                "ExternalType",
-                15,
-                new Dictionary<string, string> { { "Layer", "External" } }
-            ));
-        }
-
-        return nodes;
     }
 }

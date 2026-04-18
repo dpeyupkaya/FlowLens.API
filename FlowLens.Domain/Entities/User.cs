@@ -15,4 +15,5 @@ public class User : BaseEntity
     public DateTimeOffset? LastLoginAt { get; set; }
 
     public int DailyAnalysisCount { get; set; } = 0;
+    public string GitHubAccessToken { get; set; } = string.Empty;
 }

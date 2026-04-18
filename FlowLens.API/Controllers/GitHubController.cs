@@ -1,8 +1,9 @@
 ﻿using FlowLens.Application.Features.GitHub.Queries.GetCSharpRepos;
+using FlowLens.Domain.Repositories;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Extensions.Configuration;
+using System.Security.Claims;
 
 namespace FlowLens.API.Controllers
 {
@@ -11,49 +12,39 @@ namespace FlowLens.API.Controllers
     public class GitHubController : ControllerBase
     {
         private readonly IMediator _mediator;
-        private readonly IDataProtector _protector;
+        private readonly IUserRepository _userRepository;
 
-        public GitHubController(IMediator mediator, IDataProtectionProvider provider, IConfiguration configuration)
+        public GitHubController(IMediator mediator, IUserRepository userRepository)
         {
             _mediator = mediator;
-
-           
-            var secretKey = configuration["SecuritySettings:CookieEncryptionKey"]
-                            ?? throw new ArgumentNullException("CookieEncryptionKey eksik!");
-            _protector = provider.CreateProtector(secretKey);
+            _userRepository = userRepository;
         }
 
         [HttpGet("csharp-repos")]
-        public async Task<IActionResult> GetCSharpRepos() 
+        public async Task<IActionResult> GetCSharpRepos()
         {
-          
-            var encryptedToken = Request.Cookies["_fl_ctx_9x"];
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-            if (string.IsNullOrWhiteSpace(encryptedToken))
+            if (string.IsNullOrEmpty(userIdString))
+                return Unauthorized(new { Message = "Kimliğin doğrulanamadı agacım." });
+
+            var user = await _userRepository.GetByIdAsync(Guid.Parse(userIdString));
+
+            if (user == null || string.IsNullOrEmpty(user.GitHubAccessToken))
             {
-                return Unauthorized(new { Message = "Oturum bulunamadı. Lütfen giriş yap agacım." });
+                return BadRequest(new { Message = "Sistemde GitHub bağlantın bulunamadı." });
             }
 
             try
             {
-                
-                var githubToken = _protector.Unprotect(encryptedToken);
+                var query = new GetCSharpReposQuery(user.GitHubAccessToken);
+                var repos = await _mediator.Send(query);
 
-                var query = new GetCSharpReposQuery(githubToken);
-
-                var csharpRepos = await _mediator.Send(query);
-
-                if (!csharpRepos.Any())
-                {
-                    return Ok(new { Message = "Bu hesaba ait public C# reposu bulunamadı.", Repos = csharpRepos });
-                }
-
-                return Ok(csharpRepos);
+                return Ok(repos);
             }
             catch (Exception ex)
             {
-               
-                return StatusCode(500, new { Message = "Repoları çekerken bir sorun oluştu.", Error = ex.Message });
+                return StatusCode(500, new { Message = "GitHub ile konuşurken bir sorun oldu.", Error = ex.Message });
             }
         }
     }

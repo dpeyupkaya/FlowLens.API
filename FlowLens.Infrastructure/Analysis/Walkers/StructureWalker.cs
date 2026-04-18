@@ -6,75 +6,135 @@ using FlowLens.Infrastructure.Analysis.Helpers;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace FlowLens.Infrastructure.Analysis.Walkers;
-
-public class StructureWalker : CSharpSyntaxWalker
+namespace FlowLens.Infrastructure.Analysis.Walkers
 {
-    private readonly SemanticModel _semanticModel;
-
-    public List<NodeDto> Nodes { get; } = new();
-    public List<EdgeDto> Edges { get; } = new();
-
-    private string? _currentClassId;
-
-    // 🔥 Motorun gönderdiği "Beyni" (SemanticModel) constructor'dan alıyoruz
-    public StructureWalker(SemanticModel semanticModel)
+    public class StructureWalker : CSharpSyntaxWalker
     {
-        _semanticModel = semanticModel;
-    }
+        private readonly SemanticModel _semanticModel;
 
-    public override void VisitClassDeclaration(ClassDeclarationSyntax node)
-    {
-        if (!node.Modifiers.Any(SyntaxKind.PublicKeyword)) return;
+        public List<NodeDto> Nodes { get; } = new();
+        public List<EdgeDto> Edges { get; } = new();
 
-        var classSymbol = _semanticModel.GetDeclaredSymbol(node) as INamedTypeSymbol;
-        if (classSymbol == null) return;
+        private readonly Stack<NodeDto> _currentNodeStack = new();
 
-        _currentClassId = classSymbol.ToDisplayString();
-        var className = classSymbol.Name;
-        var currentNamespace = classSymbol.ContainingNamespace?.ToDisplayString() ?? "Global";
-
-        var layer = LayerDetector.Detect(currentNamespace);
-
-        var metadata = new Dictionary<string, string>
+        public StructureWalker(SemanticModel semanticModel)
         {
-            { "Layer", layer },
-            { "Namespace", currentNamespace }
-        };
-
-        Nodes.Add(new NodeDto(_currentClassId, className, "Class", 25, metadata));
-
-        base.VisitClassDeclaration(node);
-
-        _currentClassId = classSymbol.ContainingType?.ToDisplayString();
-    }
-
-    public override void VisitMethodDeclaration(MethodDeclarationSyntax node)
-    {
-        if (_currentClassId != null && node.Modifiers.Any(SyntaxKind.PublicKeyword))
-        {
-            var methodSymbol = _semanticModel.GetDeclaredSymbol(node) as IMethodSymbol;
-            if (methodSymbol == null) return;
-
-            var methodName = methodSymbol.Name;
-
-            var methodId = methodSymbol.ToDisplayString();
-
-            Nodes.Add(new NodeDto(methodId, methodName, "Method", 12));
-            Edges.Add(new EdgeDto(_currentClassId, methodId, "Contains"));
-
-            foreach (var parameter in methodSymbol.Parameters)
-            {
-                var paramName = parameter.Name;
-                var paramType = parameter.Type.ToDisplayString(); 
-                var paramId = $"{methodId}.p_{paramName}";
-
-                var metadata = new Dictionary<string, string> { { "DataType", paramType } };
-
-                Nodes.Add(new NodeDto(paramId, paramName, "Parameter", 6, metadata));
-                Edges.Add(new EdgeDto(methodId, paramId, "HasParameter"));
-            }
+            _semanticModel = semanticModel;
         }
-        base.VisitMethodDeclaration(node);
+
+        public override void VisitClassDeclaration(ClassDeclarationSyntax node)
+        {
+            var symbol = _semanticModel.GetDeclaredSymbol(node) as INamedTypeSymbol;
+            if (symbol == null) return;
+
+            var classNode = CreateTypeNode(symbol, "Class", 25);
+            Nodes.Add(classNode);
+            _currentNodeStack.Push(classNode); // Sınıfın içine girdik
+
+            base.VisitClassDeclaration(node); // Metotları ve property'leri gezer
+
+            _currentNodeStack.Pop(); // Sınıftan çıktık
+        }
+
+        public override void VisitInterfaceDeclaration(InterfaceDeclarationSyntax node)
+        {
+            var symbol = _semanticModel.GetDeclaredSymbol(node) as INamedTypeSymbol;
+            if (symbol == null) return;
+
+            var interfaceNode = CreateTypeNode(symbol, "Interface", 20);
+            Nodes.Add(interfaceNode);
+            _currentNodeStack.Push(interfaceNode);
+
+            base.VisitInterfaceDeclaration(node);
+
+            _currentNodeStack.Pop();
+        }
+
+        public override void VisitRecordDeclaration(RecordDeclarationSyntax node)
+        {
+            var symbol = _semanticModel.GetDeclaredSymbol(node) as INamedTypeSymbol;
+            if (symbol == null) return;
+
+            var recordNode = CreateTypeNode(symbol, "Record", 22);
+            Nodes.Add(recordNode);
+            _currentNodeStack.Push(recordNode);
+
+            base.VisitRecordDeclaration(node);
+
+            _currentNodeStack.Pop();
+        }
+
+        // YENİ: Metotları ayrı Node yapmıyoruz, mevcut sınıfın Metadata'sına ekliyoruz.
+        public override void VisitMethodDeclaration(MethodDeclarationSyntax node)
+        {
+            if (_currentNodeStack.Count > 0)
+            {
+                var methodSymbol = _semanticModel.GetDeclaredSymbol(node) as IMethodSymbol;
+
+                // Kurucuları (Constructor) veya get/set bloklarını atla, sadece normal metotları al
+                if (methodSymbol != null && methodSymbol.MethodKind == MethodKind.Ordinary)
+                {
+                    var parentNode = _currentNodeStack.Peek();
+
+                    var parameters = methodSymbol.Parameters
+                        .Select(p => $"{p.Type.ToDisplayString()} {p.Name}")
+                        .ToList();
+
+                    var methodInfo = new MethodInfoDto(
+                        methodSymbol.Name,
+                        methodSymbol.ReturnType.ToDisplayString(),
+                        parameters,
+                        methodSymbol.DeclaredAccessibility.ToString().ToLower()
+                    );
+
+                    // Metadata içinde Methods listesini bul veya oluştur
+                    if (!parentNode.Metadata.ContainsKey("Methods"))
+                        parentNode.Metadata["Methods"] = new List<MethodInfoDto>();
+
+                    ((List<MethodInfoDto>)parentNode.Metadata["Methods"]).Add(methodInfo);
+                }
+            }
+            base.VisitMethodDeclaration(node);
+        }
+
+        public override void VisitPropertyDeclaration(PropertyDeclarationSyntax node)
+        {
+            if (_currentNodeStack.Count > 0)
+            {
+                var propertySymbol = _semanticModel.GetDeclaredSymbol(node) as IPropertySymbol;
+                if (propertySymbol != null)
+                {
+                    var parentNode = _currentNodeStack.Peek();
+                    var propInfo = new PropertyInfoDto(
+                        propertySymbol.Name,
+                        propertySymbol.Type.ToDisplayString(),
+                        propertySymbol.DeclaredAccessibility.ToString().ToLower()
+                    );
+
+                    if (!parentNode.Metadata.ContainsKey("Properties"))
+                        parentNode.Metadata["Properties"] = new List<PropertyInfoDto>();
+
+                    ((List<PropertyInfoDto>)parentNode.Metadata["Properties"]).Add(propInfo);
+                }
+            }
+            base.VisitPropertyDeclaration(node);
+        }
+
+        private NodeDto CreateTypeNode(INamedTypeSymbol symbol, string typeName, int size)
+        {
+            var id = symbol.ToDisplayString();
+            var name = symbol.Name;
+            var currentNamespace = symbol.ContainingNamespace?.ToDisplayString() ?? "Global";
+
+            var metadata = new Dictionary<string, object>
+            {
+                { "Layer", LayerDetector.Detect(currentNamespace) },
+                { "Namespace", currentNamespace },
+                { "Methods", new List<MethodInfoDto>() },
+                { "Properties", new List<PropertyInfoDto>() }
+            };
+
+            return new NodeDto(id, name, typeName, size, metadata);
+        }
     }
 }

@@ -16,6 +16,7 @@ public class AuthController : ControllerBase
     public AuthController(IMediator mediator, IDataProtectionProvider provider, IConfiguration configuration)
     {
         _mediator = mediator;
+
         var secretKey = configuration["SecuritySettings:CookieEncryptionKey"]
                         ?? throw new ArgumentNullException("CookieEncryptionKey eksik!");
         _protector = provider.CreateProtector(secretKey);
@@ -32,7 +33,7 @@ public class AuthController : ControllerBase
 
         if (!string.IsNullOrEmpty(result.Token))
         {
-            var encryptedToken = _protector.Protect(result.GitHubAccessToken);
+            var encryptedToken = _protector.Protect(result.Token);
 
             var cookieOptions = new CookieOptions
             {
@@ -44,10 +45,7 @@ public class AuthController : ControllerBase
 
             Response.Cookies.Append("_fl_ctx_9x", encryptedToken, cookieOptions);
         }
-        return Ok(new
-        {
-            Message = "Giriş başarılı!",
-         });
 
+        return Ok(new { Message = "Giriş başarılı!" });
     }
 }

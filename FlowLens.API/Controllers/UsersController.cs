@@ -1,26 +1,37 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using FlowLens.Application.Features.Users.Queries.GetCurrentUser;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Threading.Tasks;
 
-namespace FlowLens.Api.Controllers;
+namespace FlowLens.API.Controllers;
 
+[Authorize] 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize] 
 public class UsersController : ControllerBase
 {
-    [HttpGet("me")]
-    public IActionResult GetMe()
-    {
-     
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var userName = User.Identity?.Name;
+    private readonly IMediator _mediator;
 
-        return Ok(new
+    public UsersController(IMediator mediator)
+    {
+        _mediator = mediator;
+    }
+
+    [HttpGet("me")]
+    public async Task<IActionResult> GetCurrentUser()
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        if (!Guid.TryParse(userIdString, out var userId))
         {
-            Message = "Gizli odaya hoş geldin agacım!",
-            UserId = userId,
-            Username = userName
-        });
+            return Unauthorized(new { Message = "Geçersiz token formatı." });
+        }
+
+        var query = new GetCurrentUserQuery(userId);
+        var result = await _mediator.Send(query);
+
+        return Ok(result);
     }
 }

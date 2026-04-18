@@ -1,25 +1,21 @@
 ﻿using FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Extensions.Configuration;
+using System.Security.Claims;
 
 namespace FlowLens.Api.Controllers;
 
+[Authorize] 
 [ApiController]
 [Route("api/[controller]")]
 public class AnalysisController : ControllerBase
 {
     private readonly IMediator _mediator;
-    private readonly IDataProtector _protector;
 
-    public AnalysisController(IMediator mediator, IDataProtectionProvider provider, IConfiguration configuration)
+    public AnalysisController(IMediator mediator)
     {
         _mediator = mediator;
-
-        var secretKey = configuration["SecuritySettings:CookieEncryptionKey"]
-                        ?? throw new ArgumentNullException("CookieEncryptionKey eksik!");
-        _protector = provider.CreateProtector(secretKey);
     }
 
     public record AnalyzeRequestDto(string RepoUrl);
@@ -30,16 +26,13 @@ public class AnalysisController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.RepoUrl))
             return BadRequest(new { Message = "Repo URL'si boş olamaz." });
 
-        var encryptedToken = Request.Cookies["_fl_ctx_9x"];
-
-        if (string.IsNullOrWhiteSpace(encryptedToken))
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out var userId))
             return Unauthorized(new { Message = "Oturum bulunamadı. Lütfen giriş yap." });
 
         try
         {
-            var githubToken = _protector.Unprotect(encryptedToken);
-
-            var command = new AnalyzeRepoCommand(request.RepoUrl, githubToken);
+            var command = new AnalyzeRepoCommand(request.RepoUrl, userId);
             var report = await _mediator.Send(command);
 
             return Ok(report);

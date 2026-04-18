@@ -1,6 +1,7 @@
 ﻿using FlowLens.Application.Features.Analysis.DTOs;
 using FlowLens.Application.Interfaces.External;
 using FlowLens.Application.Interfaces.Infrastructure;
+using FlowLens.Domain.Repositories;
 using MediatR;
 
 namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo;
@@ -10,15 +11,18 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
     private readonly IGitHubService _gitHubService;
     private readonly ICodeAnalyzerService _codeAnalyzerService;
     private readonly IAnalysisProgressService _progressService;
+    private readonly IUserRepository _userRepository;
 
     public AnalyzeRepoCommandHandler(
         IGitHubService gitHubService,
         ICodeAnalyzerService codeAnalyzerService,
-        IAnalysisProgressService progressService)
+        IAnalysisProgressService progressService,
+        IUserRepository userRepository)
     {
         _gitHubService = gitHubService;
         _codeAnalyzerService = codeAnalyzerService;
         _progressService = progressService;
+        _userRepository = userRepository;
     }
 
     public async Task<AnalysisReportDto> Handle(AnalyzeRepoCommand request, CancellationToken cancellationToken)
@@ -28,11 +32,19 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
 
         try
         {
-            await _progressService.NotifyAsync(" Analiz motoru hazırlık süreci tamamlandı.");
+            await _progressService.NotifyAsync("Analiz motoru hazırlık süreci tamamlandı.");
+
+            var user = await _userRepository.GetByIdAsync(request.UserId);
+            if (user == null || string.IsNullOrEmpty(user.GitHubAccessToken))
+            {
+                throw new Exception("Kullanıcının GitHub erişim izni (token) bulunamadı.");
+            }
+
             Directory.CreateDirectory(tempPath);
 
-            await _progressService.NotifyAsync(" Kaynak kod deposu indirme ve dışa aktarma işlemi yürütülüyor.");
-            await _gitHubService.DownloadAndExtractRepoAsync(request.RepoUrl, request.AccessToken, tempPath);
+            await _progressService.NotifyAsync("Kaynak kod deposu indirme ve dışa aktarma işlemi yürütülüyor.");
+
+            await _gitHubService.DownloadAndExtractRepoAsync(request.RepoUrl, user.GitHubAccessToken, tempPath);
 
             await _progressService.NotifyAsync("Dosya meta verileri ve kod metrikleri hesaplanıyor.");
 
@@ -45,11 +57,11 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
                 totalLines += lines.Length;
             }
 
-            await _progressService.NotifyAsync($" Statik tarama sonucunda {csharpFiles.Length} dosya ve {totalLines} satır kod analiz kapsamına alındı.");
+            await _progressService.NotifyAsync($"Statik tarama sonucunda {csharpFiles.Length} dosya ve {totalLines} satır kod analiz kapsamına alındı.");
 
             var codeGraph = await _codeAnalyzerService.AnalyzeStructureAsync(tempPath);
 
-            await _progressService.NotifyAsync(" Proje yapısal analizi ve haritalama işlemi başarıyla tamamlandı.");
+            await _progressService.NotifyAsync("Proje yapısal analizi ve haritalama işlemi başarıyla tamamlandı.");
 
             return new AnalysisReportDto(
                 RepoUrl: request.RepoUrl,
@@ -66,15 +78,13 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
         catch (Exception ex)
         {
             await _progressService.NotifyAsync($"[HATA] Analiz süreci başarısız oldu: {ex.Message}");
-           
             throw new Exception("İlgili deponun analiz işlemi gerçekleştirilemedi.", ex);
         }
         finally
         {
-          
             if (Directory.Exists(tempPath))
             {
-                await _progressService.NotifyAsync(" Geçici çalışma dizini ve ilgili kaynaklar temizleniyor.");
+                await _progressService.NotifyAsync("Geçici çalışma dizini ve ilgili kaynaklar temizleniyor.");
                 Directory.Delete(tempPath, true);
             }
         }
