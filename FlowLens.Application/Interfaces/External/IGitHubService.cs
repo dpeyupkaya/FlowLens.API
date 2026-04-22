@@ -5,7 +5,7 @@ namespace FlowLens.Application.Interfaces.External
     {
         Task<(GitHubUserResponse User, string AccessToken)> GetUserAndTokenAsync(string code);
 
-        Task<List<GitHubRepoResponse>> GetUserReposAsync(string accessToken);
+        Task<List<GitHubRepoResponse>> GetUserReposAsync(string accessToken , string visibility = "all");
         Task DownloadAndExtractRepoAsync(string repoUrl, string accessToken, string extractPath);
     }
 }

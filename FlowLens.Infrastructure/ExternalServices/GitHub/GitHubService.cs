@@ -25,9 +25,17 @@ public class GitHubService : IGitHubService
         return (user, tokenResponse.AccessToken);
     }
 
-    public async Task<List<GitHubRepoResponse>> GetUserReposAsync(string accessToken)
+    public async Task<List<GitHubRepoResponse>> GetUserReposAsync(string accessToken, string visibility = "all")
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/user/repos?type=public&per_page=100");
+        string githubVisibility = visibility.ToLower() switch
+        {
+            "public" => "public",
+            "private" => "private",
+            _ => "all" 
+        };
+
+        var url = $"https://api.github.com/user/repos?visibility={githubVisibility}&per_page=100";
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
 
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.Trim());
         request.Headers.UserAgent.ParseAdd("FlowLens-App");

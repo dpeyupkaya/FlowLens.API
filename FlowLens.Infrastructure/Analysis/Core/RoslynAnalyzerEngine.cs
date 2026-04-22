@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using FlowLens.Application.Features.Analysis.DTOs;
 using FlowLens.Infrastructure.Analysis.Walkers;
 using FlowLens.Infrastructure.Hubs;
+using FlowLens.Domain.Entities; 
 using Microsoft.AspNetCore.SignalR;
 using System;
 using System.Collections.Generic;
@@ -25,17 +26,16 @@ public class RoslynAnalyzerEngine
     {
         await _hubContext.Clients.All.SendAsync("ReceiveAnalysisLog", message);
     }
-
-    public async Task<CodeGraphDto> AnalyzeAsync(string directoryPath)
+    public async Task<CodeGraphDto> AnalyzeAsync(string directoryPath, AnalysisPreferences settings)
     {
         await SendLog("[SİSTEM] Analiz motoru başlatıldı. Anlamsal (Semantic) derleme aşamasına geçiliyor.");
 
         var allNodes = new List<NodeDto>();
         var allEdges = new List<EdgeDto>();
-
         var allMetrics = new Dictionary<string, (int Complexity, int Lines)>();
 
-        var files = GetProjectFiles(directoryPath);
+        var files = GetProjectFiles(directoryPath, settings?.ExcludedFolders);
+
         await SendLog($"[BİLGİ] {files.Count} adet C# dosyası tespit edildi. Bellek içi derleme hazırlanıyor...");
 
         var syntaxTreeTasks = files.Select(async file =>
@@ -50,13 +50,12 @@ public class RoslynAnalyzerEngine
             .AddReferences(
                 MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location) 
+                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location)
             );
 
         await SendLog("[BİLGİ] Sanal derleme tamamlandı. Mimari bağlar (Semantic) çözümleniyor...");
 
         int processedFiles = 0;
-
         foreach (var tree in syntaxTrees)
         {
             processedFiles++;
@@ -71,7 +70,8 @@ public class RoslynAnalyzerEngine
             var structWalker = new StructureWalker(semanticModel);
             structWalker.Visit(root);
             allNodes.AddRange(structWalker.Nodes);
-            allEdges.AddRange(structWalker.Edges); 
+            allEdges.AddRange(structWalker.Edges);
+
             var relationshipWalker = new RelationshipWalker(semanticModel);
             relationshipWalker.Visit(root);
             allEdges.AddRange(relationshipWalker.Edges);
@@ -86,15 +86,11 @@ public class RoslynAnalyzerEngine
 
         await SendLog("[BİLGİ] Yapısal bütünlük kontrolü ve akıllı filtreleme devrede...");
 
-        allNodes.RemoveAll(n =>
-            n.Name.EndsWith("Test", StringComparison.OrdinalIgnoreCase) ||
-            n.Name.EndsWith("Tests", StringComparison.OrdinalIgnoreCase) ||
-            n.Id.Contains(".Tests.")
-        );
-
-        var projectNodeIds = new HashSet<string>(allNodes.Select(n => n.Id));
-
-        allEdges.RemoveAll(e => !projectNodeIds.Contains(e.Source) || !projectNodeIds.Contains(e.Target));
+        if (settings != null && !settings.ShowExternalLibs)
+        {
+            var projectNodeIds = new HashSet<string>(allNodes.Select(n => n.Id));
+            allEdges.RemoveAll(e => !projectNodeIds.Contains(e.Source) || !projectNodeIds.Contains(e.Target));
+        }
 
         var distinctNodes = allNodes.DistinctBy(n => n.Id).ToList();
         var distinctEdges = allEdges.DistinctBy(e => new { e.Source, e.Target, e.RelationType }).ToList();
@@ -104,15 +100,17 @@ public class RoslynAnalyzerEngine
         return new CodeGraphDto(distinctNodes, distinctEdges);
     }
 
-    private List<string> GetProjectFiles(string directoryPath)
+    private List<string> GetProjectFiles(string directoryPath, List<string> excludedFolders)
     {
-        return Directory.GetFiles(directoryPath, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains("\\Tests\\", StringComparison.OrdinalIgnoreCase) &&
-                        !f.Contains("\\tests\\", StringComparison.OrdinalIgnoreCase) &&
-                        !f.Contains("/tests/", StringComparison.OrdinalIgnoreCase) &&
-                        !f.Contains("Test.cs", StringComparison.OrdinalIgnoreCase) &&
-                        !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) &&
-                        !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var allFiles = Directory.GetFiles(directoryPath, "*.cs", SearchOption.AllDirectories);
+
+        if (excludedFolders == null || !excludedFolders.Any())
+            return allFiles.ToList();
+
+        return allFiles.Where(file =>
+        {
+            var normalizedPath = file.Replace("\\", "/");
+            return !excludedFolders.Any(folder => normalizedPath.Contains($"/{folder}/", StringComparison.OrdinalIgnoreCase));
+        }).ToList();
     }
 }

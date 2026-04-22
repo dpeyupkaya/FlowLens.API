@@ -2,6 +2,7 @@
 using FlowLens.Domain.Repositories;
 using MediatR;
 using System;
+using System.Collections.Generic; 
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -25,12 +26,34 @@ public class GetCurrentUserQueryHandler : IRequestHandler<GetCurrentUserQuery, U
             throw new UnauthorizedAccessException("Geçersiz oturum: Kullanıcı bulunamadı.");
         }
 
+        var settingsDto = user.Settings != null ? new UserSettingsDto
+        {
+            Analysis = new AnalysisPreferencesDto
+            {
+                ExcludedFolders = user.Settings.Analysis.ExcludedFolders ?? new List<string>(),
+                MaxAnalysisDepth = user.Settings.Analysis.MaxAnalysisDepth,
+                ShowExternalLibs = user.Settings.Analysis.ShowExternalLibs
+            },
+            Graphics = new GraphicsPreferencesDto
+            {
+                NodeDetailLevel = user.Settings.Graphics.NodeDetailLevel,
+                HighPerformanceMode = user.Settings.Graphics.HighPerformanceMode,
+                ShowMinimap = user.Settings.Graphics.ShowMinimap
+            },
+            Data = new DataPreferencesDto
+            {
+                RepoVisibility = user.Settings.Data.RepoVisibility
+            }
+        } : null;
+
+     
         return new UserDto(
             user.Id,
             user.Username,
             user.Email,
             user.AvatarUrl,
-            user.LastLoginAt
+            user.LastLoginAt,
+            settingsDto 
         );
     }
 }

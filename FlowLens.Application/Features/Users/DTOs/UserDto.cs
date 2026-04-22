@@ -5,5 +5,6 @@ public record UserDto(
     string Username,
     string Email,
     string AvatarUrl,
-    DateTimeOffset? LastLoginAt
+    DateTimeOffset? LastLoginAt,
+    UserSettingsDto? Settings
 );

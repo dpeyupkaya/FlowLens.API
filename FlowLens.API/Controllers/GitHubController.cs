@@ -1,5 +1,4 @@
 ﻿using FlowLens.Application.Features.GitHub.Queries.GetCSharpRepos;
-using FlowLens.Domain.Repositories;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,12 +11,10 @@ namespace FlowLens.API.Controllers
     public class GitHubController : ControllerBase
     {
         private readonly IMediator _mediator;
-        private readonly IUserRepository _userRepository;
 
-        public GitHubController(IMediator mediator, IUserRepository userRepository)
+        public GitHubController(IMediator mediator)
         {
             _mediator = mediator;
-            _userRepository = userRepository;
         }
 
         [HttpGet("csharp-repos")]
@@ -28,19 +25,20 @@ namespace FlowLens.API.Controllers
             if (string.IsNullOrEmpty(userIdString))
                 return Unauthorized(new { Message = "Kimliğin doğrulanamadı agacım." });
 
-            var user = await _userRepository.GetByIdAsync(Guid.Parse(userIdString));
-
-            if (user == null || string.IsNullOrEmpty(user.GitHubAccessToken))
-            {
-                return BadRequest(new { Message = "Sistemde GitHub bağlantın bulunamadı." });
-            }
+            var userId = Guid.Parse(userIdString);
 
             try
             {
-                var query = new GetCSharpReposQuery(user.GitHubAccessToken);
+                var query = new GetCSharpReposQuery(userId);
+
                 var repos = await _mediator.Send(query);
 
                 return Ok(repos);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+             
+                return Unauthorized(new { Message = ex.Message });
             }
             catch (Exception ex)
             {

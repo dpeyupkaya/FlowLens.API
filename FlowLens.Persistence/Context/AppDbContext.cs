@@ -17,7 +17,14 @@ public class AppDbContext : DbContext
         {
             entity.HasIndex(u => u.GitHubId).IsUnique();
 
-         
+            entity.OwnsOne(u => u.Settings, settingsBuilder =>
+            {
+                settingsBuilder.ToJson(); 
+
+                settingsBuilder.OwnsOne(s => s.Analysis);
+                settingsBuilder.OwnsOne(s => s.Graphics);
+                settingsBuilder.OwnsOne(s => s.Data);
+            });
         });
 
         base.OnModelCreating(modelBuilder);

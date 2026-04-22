@@ -40,17 +40,24 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
                 throw new Exception("Kullanıcının GitHub erişim izni (token) bulunamadı.");
             }
 
+            var analysisSettings = user.Settings?.Analysis;
+            var excludedFolders = analysisSettings?.ExcludedFolders ?? new List<string>();
+
             Directory.CreateDirectory(tempPath);
 
             await _progressService.NotifyAsync("Kaynak kod deposu indirme ve dışa aktarma işlemi yürütülüyor.");
-
             await _gitHubService.DownloadAndExtractRepoAsync(request.RepoUrl, user.GitHubAccessToken, tempPath);
 
             await _progressService.NotifyAsync("Dosya meta verileri ve kod metrikleri hesaplanıyor.");
 
-            var csharpFiles = Directory.GetFiles(tempPath, "*.cs", SearchOption.AllDirectories);
-            int totalLines = 0;
+            var allFiles = Directory.GetFiles(tempPath, "*.cs", SearchOption.AllDirectories);
+            var csharpFiles = allFiles.Where(file =>
+            {
+                var normalizedPath = file.Replace("\\", "/");
+                return !excludedFolders.Any(folder => normalizedPath.Contains($"/{folder}/", StringComparison.OrdinalIgnoreCase));
+            }).ToArray();
 
+            int totalLines = 0;
             foreach (var file in csharpFiles)
             {
                 var lines = await File.ReadAllLinesAsync(file, cancellationToken);
@@ -59,7 +66,7 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
 
             await _progressService.NotifyAsync($"Statik tarama sonucunda {csharpFiles.Length} dosya ve {totalLines} satır kod analiz kapsamına alındı.");
 
-            var codeGraph = await _codeAnalyzerService.AnalyzeStructureAsync(tempPath);
+            var codeGraph = await _codeAnalyzerService.AnalyzeStructureAsync(tempPath, analysisSettings);
 
             await _progressService.NotifyAsync("Proje yapısal analizi ve haritalama işlemi başarıyla tamamlandı.");
 
