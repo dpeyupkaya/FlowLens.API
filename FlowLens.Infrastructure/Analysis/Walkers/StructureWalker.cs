@@ -11,15 +11,17 @@ namespace FlowLens.Infrastructure.Analysis.Walkers
     public class StructureWalker : CSharpSyntaxWalker
     {
         private readonly SemanticModel _semanticModel;
+        private readonly int _maxDepth;
 
         public List<NodeDto> Nodes { get; } = new();
         public List<EdgeDto> Edges { get; } = new();
 
         private readonly Stack<NodeDto> _currentNodeStack = new();
 
-        public StructureWalker(SemanticModel semanticModel)
+        public StructureWalker(SemanticModel semanticModel, int maxDepth)
         {
             _semanticModel = semanticModel;
+            _maxDepth = maxDepth;
         }
 
         public override void VisitClassDeclaration(ClassDeclarationSyntax node)
@@ -29,11 +31,11 @@ namespace FlowLens.Infrastructure.Analysis.Walkers
 
             var classNode = CreateTypeNode(symbol, "Class", 25);
             Nodes.Add(classNode);
-            _currentNodeStack.Push(classNode); // Sınıfın içine girdik
+            _currentNodeStack.Push(classNode);
 
-            base.VisitClassDeclaration(node); // Metotları ve property'leri gezer
+            base.VisitClassDeclaration(node);
 
-            _currentNodeStack.Pop(); // Sınıftan çıktık
+            _currentNodeStack.Pop();
         }
 
         public override void VisitInterfaceDeclaration(InterfaceDeclarationSyntax node)
@@ -64,14 +66,14 @@ namespace FlowLens.Infrastructure.Analysis.Walkers
             _currentNodeStack.Pop();
         }
 
-        // YENİ: Metotları ayrı Node yapmıyoruz, mevcut sınıfın Metadata'sına ekliyoruz.
         public override void VisitMethodDeclaration(MethodDeclarationSyntax node)
         {
+            if (_maxDepth < 2) return;
+
             if (_currentNodeStack.Count > 0)
             {
                 var methodSymbol = _semanticModel.GetDeclaredSymbol(node) as IMethodSymbol;
 
-                // Kurucuları (Constructor) veya get/set bloklarını atla, sadece normal metotları al
                 if (methodSymbol != null && methodSymbol.MethodKind == MethodKind.Ordinary)
                 {
                     var parentNode = _currentNodeStack.Peek();
@@ -87,7 +89,6 @@ namespace FlowLens.Infrastructure.Analysis.Walkers
                         methodSymbol.DeclaredAccessibility.ToString().ToLower()
                     );
 
-                    // Metadata içinde Methods listesini bul veya oluştur
                     if (!parentNode.Metadata.ContainsKey("Methods"))
                         parentNode.Metadata["Methods"] = new List<MethodInfoDto>();
 
@@ -99,6 +100,8 @@ namespace FlowLens.Infrastructure.Analysis.Walkers
 
         public override void VisitPropertyDeclaration(PropertyDeclarationSyntax node)
         {
+            if (_maxDepth < 3) return;
+
             if (_currentNodeStack.Count > 0)
             {
                 var propertySymbol = _semanticModel.GetDeclaredSymbol(node) as IPropertySymbol;

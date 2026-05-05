@@ -16,6 +16,7 @@ public class User : BaseEntity
 
     public int DailyAnalysisCount { get; set; } = 0;
     public string GitHubAccessToken { get; set; } = string.Empty;
+    public DateTime LastAnalysisDate { get; set; } = DateTime.UtcNow.Date;
 
     public UserSettings Settings { get; set; } = new();
 }

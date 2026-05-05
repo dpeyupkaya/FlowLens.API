@@ -3,6 +3,12 @@ using FlowLens.Application.Interfaces.External;
 using FlowLens.Application.Interfaces.Infrastructure;
 using FlowLens.Domain.Repositories;
 using MediatR;
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo;
 
@@ -12,6 +18,8 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
     private readonly ICodeAnalyzerService _codeAnalyzerService;
     private readonly IAnalysisProgressService _progressService;
     private readonly IUserRepository _userRepository;
+
+    private const int MAX_DAILY_ANALYSIS_LIMIT = 5;
 
     public AnalyzeRepoCommandHandler(
         IGitHubService gitHubService,
@@ -40,8 +48,29 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
                 throw new Exception("Kullanıcının GitHub erişim izni (token) bulunamadı.");
             }
 
-            var analysisSettings = user.Settings?.Analysis;
-            var excludedFolders = analysisSettings?.ExcludedFolders ?? new List<string>();
+            var today = DateTime.UtcNow.Date;
+
+            if (user.LastAnalysisDate.Date != today)
+            {
+                user.DailyAnalysisCount = 0;
+                user.LastAnalysisDate = today;
+            }
+
+        
+            if (user.DailyAnalysisCount >= MAX_DAILY_ANALYSIS_LIMIT)
+            {
+                throw new Exception($"Günlük analiz limitinize ({MAX_DAILY_ANALYSIS_LIMIT}/{MAX_DAILY_ANALYSIS_LIMIT}) ulaştınız. Lütfen yarın tekrar deneyin.");
+            }
+        
+
+
+            var dbSettings = user.Settings?.Analysis;
+
+            var finalIgnoredFolders = request.IgnoredFolders != null && request.IgnoredFolders.Any()
+                ? request.IgnoredFolders
+                : dbSettings?.ExcludedFolders ?? new List<string>();
+
+            var finalMaxDepth = request.MaxDepth ?? dbSettings?.MaxDepth ?? 3;
 
             Directory.CreateDirectory(tempPath);
 
@@ -54,7 +83,7 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
             var csharpFiles = allFiles.Where(file =>
             {
                 var normalizedPath = file.Replace("\\", "/");
-                return !excludedFolders.Any(folder => normalizedPath.Contains($"/{folder}/", StringComparison.OrdinalIgnoreCase));
+                return !finalIgnoredFolders.Any(folder => normalizedPath.Contains($"/{folder}/", StringComparison.OrdinalIgnoreCase));
             }).ToArray();
 
             int totalLines = 0;
@@ -66,9 +95,15 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
 
             await _progressService.NotifyAsync($"Statik tarama sonucunda {csharpFiles.Length} dosya ve {totalLines} satır kod analiz kapsamına alındı.");
 
-            var codeGraph = await _codeAnalyzerService.AnalyzeStructureAsync(tempPath, analysisSettings);
+            var codeGraph = await _codeAnalyzerService.AnalyzeStructureAsync(tempPath, finalIgnoredFolders, finalMaxDepth, dbSettings);
 
             await _progressService.NotifyAsync("Proje yapısal analizi ve haritalama işlemi başarıyla tamamlandı.");
+
+     
+            user.DailyAnalysisCount++;
+
+     
+            await _userRepository.UpdateAsync(user);
 
             return new AnalysisReportDto(
                 RepoUrl: request.RepoUrl,
@@ -78,14 +113,15 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
                 Issues: new List<string>
                 {
                     "Analiz süreci yürütme hatası alınmadan tamamlanmıştır.",
-                    $"Analiz kapsamı: {codeGraph.Nodes.Count} yapısal birim haritalandı."
+                    $"Analiz kapsamı: {codeGraph.Nodes.Count} yapısal birim haritalandı. (Derinlik: {finalMaxDepth})",
+                    $"Kalan Günlük Analiz Hakkı: {MAX_DAILY_ANALYSIS_LIMIT - user.DailyAnalysisCount}" 
                 }
             );
         }
         catch (Exception ex)
         {
             await _progressService.NotifyAsync($"[HATA] Analiz süreci başarısız oldu: {ex.Message}");
-            throw new Exception("İlgili deponun analiz işlemi gerçekleştirilemedi.", ex);
+            throw new Exception("İlgili deponun analiz işlemi gerçekleştirilemedi veya kotanız doldu.", ex);
         }
         finally
         {

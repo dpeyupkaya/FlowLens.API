@@ -6,7 +6,6 @@ namespace FlowLens.Application.Interfaces.Infrastructure;
 public interface ICodeAnalyzerService
 {
 
-    Task<CodeGraphDto> AnalyzeAsync(string path, AnalysisPreferences settings = null);
 
-    Task<CodeGraphDto> AnalyzeStructureAsync(string directoryPath, AnalysisPreferences settings = null);
+    Task<CodeGraphDto> AnalyzeStructureAsync(string directoryPath, List<string> ignoredFolders, int maxDepth, AnalysisPreferences settings = null);
 }

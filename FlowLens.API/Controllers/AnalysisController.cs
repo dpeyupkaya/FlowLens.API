@@ -6,7 +6,7 @@ using System.Security.Claims;
 
 namespace FlowLens.Api.Controllers;
 
-[Authorize] 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class AnalysisController : ControllerBase
@@ -18,7 +18,7 @@ public class AnalysisController : ControllerBase
         _mediator = mediator;
     }
 
-    public record AnalyzeRequestDto(string RepoUrl);
+    public record AnalyzeRequestDto(string RepoUrl, List<string>? IgnoredFolders, int? MaxDepth);
 
     [HttpPost("start")]
     public async Task<IActionResult> StartAnalysis([FromBody] AnalyzeRequestDto request)
@@ -30,9 +30,11 @@ public class AnalysisController : ControllerBase
         if (!Guid.TryParse(userIdString, out var userId))
             return Unauthorized(new { Message = "Oturum bulunamadı. Lütfen giriş yap." });
 
-        try
-        {
-            var command = new AnalyzeRepoCommand(request.RepoUrl, userId);
+        try { 
+            var ignoredFolders = request.IgnoredFolders ?? new List<string> { "obj", "bin", ".git", "node_modules" };
+            var maxDepth = request.MaxDepth ?? 5;
+
+            var command = new AnalyzeRepoCommand(request.RepoUrl, userId, ignoredFolders, maxDepth);
             var report = await _mediator.Send(command);
 
             return Ok(report);

@@ -9,14 +9,17 @@ namespace FlowLens.Infrastructure.Analysis.Walkers
     public class RelationshipWalker : CSharpSyntaxWalker
     {
         private readonly SemanticModel _semanticModel;
+        private readonly int _maxDepth; 
+
         public List<EdgeDto> Edges { get; } = new();
 
         private readonly Stack<string> _classStack = new();
         private readonly Stack<string> _methodStack = new();
 
-        public RelationshipWalker(SemanticModel semanticModel)
+        public RelationshipWalker(SemanticModel semanticModel, int maxDepth)
         {
             _semanticModel = semanticModel;
+            _maxDepth = maxDepth;
         }
 
         public override void VisitClassDeclaration(ClassDeclarationSyntax node)
@@ -37,13 +40,18 @@ namespace FlowLens.Infrastructure.Analysis.Walkers
                 Edges.Add(new EdgeDto(classId, iface.ToDisplayString(), "Implements"));
             }
 
-            base.VisitClassDeclaration(node);
+            if (_maxDepth >= 2)
+            {
+                base.VisitClassDeclaration(node);
+            }
 
             _classStack.Pop();
         }
 
         public override void VisitConstructorDeclaration(ConstructorDeclarationSyntax node)
         {
+            if (_maxDepth < 2) return;
+
             if (_classStack.TryPeek(out var currentClassId))
             {
                 var constructorSymbol = _semanticModel.GetDeclaredSymbol(node) as IMethodSymbol;
@@ -58,11 +66,38 @@ namespace FlowLens.Infrastructure.Analysis.Walkers
                     }
                 }
             }
-            base.VisitConstructorDeclaration(node);
+
+            if (_maxDepth >= 3)
+            {
+                base.VisitConstructorDeclaration(node);
+            }
+        }
+
+        public override void VisitMethodDeclaration(MethodDeclarationSyntax node)
+        {
+            if (_maxDepth < 2) return;
+
+            var methodSymbol = _semanticModel.GetDeclaredSymbol(node) as IMethodSymbol;
+            if (methodSymbol != null)
+            {
+                _methodStack.Push(methodSymbol.ToDisplayString());
+            }
+
+            if (_maxDepth >= 3)
+            {
+                base.VisitMethodDeclaration(node);
+            }
+
+            if (methodSymbol != null)
+            {
+                _methodStack.Pop();
+            }
         }
 
         public override void VisitObjectCreationExpression(ObjectCreationExpressionSyntax node)
         {
+            if (_maxDepth < 3) return; 
+
             if (_classStack.TryPeek(out var currentClassId))
             {
                 var symbolInfo = _semanticModel.GetSymbolInfo(node.Type);
@@ -80,24 +115,10 @@ namespace FlowLens.Infrastructure.Analysis.Walkers
             base.VisitObjectCreationExpression(node);
         }
 
-        public override void VisitMethodDeclaration(MethodDeclarationSyntax node)
-        {
-            var methodSymbol = _semanticModel.GetDeclaredSymbol(node) as IMethodSymbol;
-            if (methodSymbol != null)
-            {
-                _methodStack.Push(methodSymbol.ToDisplayString());
-            }
-
-            base.VisitMethodDeclaration(node);
-
-            if (methodSymbol != null)
-            {
-                _methodStack.Pop();
-            }
-        }
-
         public override void VisitInvocationExpression(InvocationExpressionSyntax node)
         {
+            if (_maxDepth < 3) return; 
+
             if (_methodStack.TryPeek(out var callingMethodId))
             {
                 var symbolInfo = _semanticModel.GetSymbolInfo(node);

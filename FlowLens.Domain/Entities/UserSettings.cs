@@ -12,6 +12,7 @@ public class AnalysisPreferences
     public List<string> ExcludedFolders { get; set; } = new() { "bin", "obj", "Tests", "Migrations", "node_modules" };
     public int MaxAnalysisDepth { get; set; } = 3;
     public bool ShowExternalLibs { get; set; } = false;
+    public int MaxDepth { get; set; }
 }
 
 public class GraphicsPreferences

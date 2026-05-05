@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using FlowLens.Application.Features.Analysis.DTOs;
 using FlowLens.Infrastructure.Analysis.Walkers;
 using FlowLens.Infrastructure.Hubs;
-using FlowLens.Domain.Entities; 
+using FlowLens.Domain.Entities;
 using Microsoft.AspNetCore.SignalR;
 using System;
 using System.Collections.Generic;
@@ -26,15 +26,18 @@ public class RoslynAnalyzerEngine
     {
         await _hubContext.Clients.All.SendAsync("ReceiveAnalysisLog", message);
     }
-    public async Task<CodeGraphDto> AnalyzeAsync(string directoryPath, AnalysisPreferences settings)
+
+    // İMZA GÜNCELLENDİ: ignoredFolders ve maxDepth eklendi
+    public async Task<CodeGraphDto> AnalyzeAsync(string directoryPath, List<string> ignoredFolders, int maxDepth, AnalysisPreferences settings)
     {
-        await SendLog("[SİSTEM] Analiz motoru başlatıldı. Anlamsal (Semantic) derleme aşamasına geçiliyor.");
+        await SendLog($"[SİSTEM] Analiz motoru başlatıldı. (Derinlik Seviyesi: {maxDepth})");
 
         var allNodes = new List<NodeDto>();
         var allEdges = new List<EdgeDto>();
         var allMetrics = new Dictionary<string, (int Complexity, int Lines)>();
 
-        var files = GetProjectFiles(directoryPath, settings?.ExcludedFolders);
+        // Güncellenmiş kara listeyi kullanarak dosyaları al
+        var files = GetProjectFiles(directoryPath, ignoredFolders);
 
         await SendLog($"[BİLGİ] {files.Count} adet C# dosyası tespit edildi. Bellek içi derleme hazırlanıyor...");
 
@@ -67,25 +70,31 @@ public class RoslynAnalyzerEngine
             var root = await tree.GetRootAsync();
             var semanticModel = compilation.GetSemanticModel(tree);
 
-            var structWalker = new StructureWalker(semanticModel);
+            // KRİTİK NOKTA: maxDepth parametresini Walker'lara paslıyoruz!
+            var structWalker = new StructureWalker(semanticModel, maxDepth);
             structWalker.Visit(root);
             allNodes.AddRange(structWalker.Nodes);
             allEdges.AddRange(structWalker.Edges);
 
-            var relationshipWalker = new RelationshipWalker(semanticModel);
+            var relationshipWalker = new RelationshipWalker(semanticModel, maxDepth);
             relationshipWalker.Visit(root);
             allEdges.AddRange(relationshipWalker.Edges);
 
-            var metricsWalker = new MetricsWalker(semanticModel);
-            metricsWalker.Visit(root);
-            foreach (var metric in metricsWalker.MethodMetrics)
+            // Metrics Walker genellikle method bazlıdır, derinlik method seviyesine inmiyorsa pas geçilebilir
+            if (maxDepth >= 3)
             {
-                allMetrics[metric.Key] = metric.Value;
+                var metricsWalker = new MetricsWalker(semanticModel);
+                metricsWalker.Visit(root);
+                foreach (var metric in metricsWalker.MethodMetrics)
+                {
+                    allMetrics[metric.Key] = metric.Value;
+                }
             }
         }
 
         await SendLog("[BİLGİ] Yapısal bütünlük kontrolü ve akıllı filtreleme devrede...");
 
+        // Dış kütüphane filtresi
         if (settings != null && !settings.ShowExternalLibs)
         {
             var projectNodeIds = new HashSet<string>(allNodes.Select(n => n.Id));
@@ -95,7 +104,7 @@ public class RoslynAnalyzerEngine
         var distinctNodes = allNodes.DistinctBy(n => n.Id).ToList();
         var distinctEdges = allEdges.DistinctBy(e => new { e.Source, e.Target, e.RelationType }).ToList();
 
-        await SendLog("[BAŞARI] Analiz başarıyla tamamlandı. Dış bağımlılıklar izole edildi, saf mimari haritası hazır.");
+        await SendLog($"[BAŞARI] Analiz başarıyla tamamlandı. Saf mimari haritası {distinctNodes.Count} düğüm ile hazır.");
 
         return new CodeGraphDto(distinctNodes, distinctEdges);
     }
