@@ -2,7 +2,7 @@
 using FlowLens.Domain.Repositories;
 using MediatR;
 using System;
-using System.Collections.Generic; 
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -46,14 +46,15 @@ public class GetCurrentUserQueryHandler : IRequestHandler<GetCurrentUserQuery, U
             }
         } : null;
 
-     
         return new UserDto(
             user.Id,
             user.Username,
             user.Email,
             user.AvatarUrl,
             user.LastLoginAt,
-            settingsDto 
+            settingsDto,             
+            user.DailyAnalysisCount, 
+            user.LastAnalysisDate    
         );
     }
 }

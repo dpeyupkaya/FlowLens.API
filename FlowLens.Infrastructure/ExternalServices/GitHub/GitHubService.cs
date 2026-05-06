@@ -1,4 +1,5 @@
-﻿using FlowLens.Application.Interfaces.External;
+﻿using FlowLens.Application.Features.Analysis.DTOs;
+using FlowLens.Application.Interfaces.External;
 using FlowLens.Infrastructure.ExternalServices.GitHub.Models;
 using Microsoft.Extensions.Configuration;
 using System.IO.Compression;
@@ -31,7 +32,7 @@ public class GitHubService : IGitHubService
         {
             "public" => "public",
             "private" => "private",
-            _ => "all" 
+            _ => "all"
         };
 
         var url = $"https://api.github.com/user/repos?visibility={githubVisibility}&per_page=100";
@@ -91,7 +92,7 @@ public class GitHubService : IGitHubService
         return await response.Content.ReadFromJsonAsync<GitHubUserResponse>()
                ?? throw new Exception("User data deserialization failed.");
     }
-    
+
     public async Task DownloadAndExtractRepoAsync(string repoUrl, string accessToken, string extractPath)
     {
         var uri = new Uri(repoUrl);
@@ -122,5 +123,41 @@ public class GitHubService : IGitHubService
         ZipFile.ExtractToDirectory(tempZipPath, extractPath, overwriteFiles: true);
 
         File.Delete(tempZipPath);
+    }
+
+    public async Task<RepoStatsDto> GetRepoStatsAsync(string repoUrl, string accessToken)
+    {
+        var uri = new Uri(repoUrl);
+        var segments = uri.AbsolutePath.Trim('/').Split('/');
+        if (segments.Length < 2)
+            throw new Exception("Geçersiz GitHub URL'si.");
+
+        var owner = segments[0];
+        var repoName = segments[1].Replace(".git", ""); 
+
+        var apiUrl = $"https://api.github.com/repos/{owner}/{repoName}";
+        var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+
+        if (!string.IsNullOrEmpty(accessToken))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.Trim());
+        }
+        request.Headers.UserAgent.ParseAdd("FlowLens-App");
+
+        var response = await _httpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var jsonDoc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        var root = jsonDoc.RootElement;
+
+        return new RepoStatsDto(
+            Stars: root.TryGetProperty("stargazers_count", out var stars) ? stars.GetInt32() : 0,
+            Forks: root.TryGetProperty("forks_count", out var forks) ? forks.GetInt32() : 0,
+            OpenIssues: root.TryGetProperty("open_issues_count", out var issues) ? issues.GetInt32() : 0,
+            PrimaryLanguage: root.TryGetProperty("language", out var lang) && lang.ValueKind != JsonValueKind.Null ? lang.GetString()! : "Bilinmiyor",
+            CreatedAt: root.TryGetProperty("created_at", out var createdAt) ? createdAt.GetDateTime() : DateTime.MinValue,
+            LastPushedAt: root.TryGetProperty("pushed_at", out var pushedAt) ? pushedAt.GetDateTime() : DateTime.MinValue,
+            DefaultBranch: root.TryGetProperty("default_branch", out var branch) ? branch.GetString()! : "main"
+        );
     }
 }

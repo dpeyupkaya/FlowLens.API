@@ -6,5 +6,7 @@ public record UserDto(
     string Email,
     string AvatarUrl,
     DateTimeOffset? LastLoginAt,
-    UserSettingsDto? Settings
+    UserSettingsDto? Settings,
+    int DailyAnalysisCount,     
+    DateTime LastAnalysisDate      
 );

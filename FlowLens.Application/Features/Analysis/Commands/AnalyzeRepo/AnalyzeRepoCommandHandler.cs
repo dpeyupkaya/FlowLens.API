@@ -48,21 +48,19 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
                 throw new Exception("Kullanıcının GitHub erişim izni (token) bulunamadı.");
             }
 
-            var today = DateTime.UtcNow.Date;
+            var userLocalTime = DateTime.UtcNow.AddMinutes(-request.TimezoneOffsetMinutes);
+            var userToday = userLocalTime.Date;
 
-            if (user.LastAnalysisDate.Date != today)
+            if (user.LastAnalysisDate.Date != userToday)
             {
                 user.DailyAnalysisCount = 0;
-                user.LastAnalysisDate = today;
+                user.LastAnalysisDate = userToday;
             }
 
-        
             if (user.DailyAnalysisCount >= MAX_DAILY_ANALYSIS_LIMIT)
             {
-                throw new Exception($"Günlük analiz limitinize ({MAX_DAILY_ANALYSIS_LIMIT}/{MAX_DAILY_ANALYSIS_LIMIT}) ulaştınız. Lütfen yarın tekrar deneyin.");
+                throw new Exception($"Günlük analiz limitinize ({MAX_DAILY_ANALYSIS_LIMIT}/{MAX_DAILY_ANALYSIS_LIMIT}) ulaştınız. Lütfen yerel saatinizle yarın tekrar deneyin.");
             }
-        
-
 
             var dbSettings = user.Settings?.Analysis;
 
@@ -73,6 +71,9 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
             var finalMaxDepth = request.MaxDepth ?? dbSettings?.MaxDepth ?? 3;
 
             Directory.CreateDirectory(tempPath);
+
+            await _progressService.NotifyAsync("Proje meta verileri ve GitHub istatistikleri toplanıyor...");
+            var repoStats = await _gitHubService.GetRepoStatsAsync(request.RepoUrl, user.GitHubAccessToken);
 
             await _progressService.NotifyAsync("Kaynak kod deposu indirme ve dışa aktarma işlemi yürütülüyor.");
             await _gitHubService.DownloadAndExtractRepoAsync(request.RepoUrl, user.GitHubAccessToken, tempPath);
@@ -99,10 +100,8 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
 
             await _progressService.NotifyAsync("Proje yapısal analizi ve haritalama işlemi başarıyla tamamlandı.");
 
-     
             user.DailyAnalysisCount++;
 
-     
             await _userRepository.UpdateAsync(user);
 
             return new AnalysisReportDto(
@@ -114,14 +113,15 @@ public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, Ana
                 {
                     "Analiz süreci yürütme hatası alınmadan tamamlanmıştır.",
                     $"Analiz kapsamı: {codeGraph.Nodes.Count} yapısal birim haritalandı. (Derinlik: {finalMaxDepth})",
-                    $"Kalan Günlük Analiz Hakkı: {MAX_DAILY_ANALYSIS_LIMIT - user.DailyAnalysisCount}" 
-                }
+                    $"Kalan Günlük Analiz Hakkı: {MAX_DAILY_ANALYSIS_LIMIT - user.DailyAnalysisCount}"
+                },
+                RepoStats: repoStats
             );
         }
         catch (Exception ex)
         {
             await _progressService.NotifyAsync($"[HATA] Analiz süreci başarısız oldu: {ex.Message}");
-            throw new Exception("İlgili deponun analiz işlemi gerçekleştirilemedi veya kotanız doldu.", ex);
+            throw new Exception(ex.Message);
         }
         finally
         {
