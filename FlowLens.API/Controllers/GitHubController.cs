@@ -2,48 +2,36 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
 
-namespace FlowLens.API.Controllers
+namespace FlowLens.API.Controllers;
+
+[Authorize] 
+[ApiController]
+[Route("api/[controller]")]
+[EnableRateLimiting("GlobalIpPolicy")]
+public class GitHubController : ControllerBase
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    public class GitHubController : ControllerBase
+    private readonly IMediator _mediator;
+
+    public GitHubController(IMediator mediator)
     {
-        private readonly IMediator _mediator;
+        _mediator = mediator;
+    }
 
-        public GitHubController(IMediator mediator)
-        {
-            _mediator = mediator;
-        }
+    [HttpGet("csharp-repos")]
+    public async Task<IActionResult> GetCSharpRepos()
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-        [HttpGet("csharp-repos")]
-        public async Task<IActionResult> GetCSharpRepos()
-        {
-            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out var userId))
+            throw new UnauthorizedAccessException("Kimlik bilginiz okunamadı, lütfen tekrar giriş yapın.");
 
-            if (string.IsNullOrEmpty(userIdString))
-                return Unauthorized(new { Message = "Kimliğin doğrulanamadı agacım." });
+        var query = new GetCSharpReposQuery(userId);
 
-            var userId = Guid.Parse(userIdString);
+        var repos = await _mediator.Send(query);
 
-            try
-            {
-                var query = new GetCSharpReposQuery(userId);
-
-                var repos = await _mediator.Send(query);
-
-                return Ok(repos);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-             
-                return Unauthorized(new { Message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { Message = "GitHub ile konuşurken bir sorun oldu.", Error = ex.Message });
-            }
-        }
+        return Ok(repos);
     }
 }

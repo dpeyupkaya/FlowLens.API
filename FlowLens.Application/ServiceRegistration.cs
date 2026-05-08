@@ -1,6 +1,8 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using FlowLens.Application.Behaviors;
+using FluentValidation;
+using MediatR;
+using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
-
 
 namespace FlowLens.Application
 {
@@ -8,8 +10,16 @@ namespace FlowLens.Application
     {
         public static IServiceCollection AddApplication(this IServiceCollection services)
         {
-            // MediatR'ı mevcut assembly'deki tüm Handler'ları bulacak şekilde kaydet
-            services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly()));
+            var assembly = Assembly.GetExecutingAssembly();
+
+            services.AddValidatorsFromAssembly(assembly);
+
+            services.AddMediatR(cfg =>
+            {
+                cfg.RegisterServicesFromAssembly(assembly);
+
+                cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+            });
 
             return services;
         }

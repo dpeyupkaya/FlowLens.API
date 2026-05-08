@@ -4,15 +4,15 @@ using FlowLens.Application.Features.Users.DTOs;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
-using System.Threading.Tasks;
-using System;
 
 namespace FlowLens.API.Controllers;
 
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("GlobalIpPolicy")]
 public class UsersController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -25,12 +25,7 @@ public class UsersController : ControllerBase
     [HttpGet("me")]
     public async Task<IActionResult> GetCurrentUser()
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        if (!Guid.TryParse(userIdString, out var userId))
-        {
-            return Unauthorized(new { Message = "Geçersiz token formatı." });
-        }
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
         var query = new GetCurrentUserQuery(userId);
         var result = await _mediator.Send(query);
@@ -41,12 +36,7 @@ public class UsersController : ControllerBase
     [HttpPut("me/settings")]
     public async Task<IActionResult> UpdateSettings([FromBody] UserSettingsDto settingsDto)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        if (!Guid.TryParse(userIdString, out var userId))
-        {
-            return Unauthorized(new { Message = "Geçersiz token formatı." });
-        }
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
         var command = new UpdateUserSettingsCommand
         {
@@ -54,13 +44,8 @@ public class UsersController : ControllerBase
             Settings = settingsDto
         };
 
-        var isSuccess = await _mediator.Send(command);
+        await _mediator.Send(command);
 
-        if (!isSuccess)
-        {
-            return NotFound(new { Message = "Kullanıcı bulunamadı veya güncellenemedi." });
-        }
-
-        return Ok(new { Message = "Ayarlar başarıyla güncellendi." });
+        return Ok(new { Message = "Ayarlarınız başarıyla  işlendi." });
     }
 }

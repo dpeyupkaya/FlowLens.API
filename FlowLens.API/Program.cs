@@ -2,28 +2,39 @@ using FlowLens.Application;
 using FlowLens.Infrastructure;
 using FlowLens.Infrastructure.Hubs;
 using FlowLens.Persistence;
+using FlowLens.API.Middlewares; 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.DataProtection; 
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Scalar.AspNetCore;
 using System.Text;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var azurePort = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(azurePort))
+{
+    builder.WebHost.UseUrls($"http://*:{azurePort}");
+}
+
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails(); 
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration);
-
-
 builder.Services.AddDataProtection();
 
 builder.Services.AddCors(options => {
     options.AddPolicy("FlowLensCors", policy => {
         policy.WithOrigins("https://localhost:5173")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials(); 
+               // policy.WithOrigins("https://flow-lens-ui.vercel.app")
+               .AllowAnyHeader()
+               .AllowAnyMethod()
+               .AllowCredentials();
     });
 });
 
@@ -47,6 +58,22 @@ builder.Services.AddOpenApi(options => {
         });
         return Task.CompletedTask;
     });
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy("GlobalIpPolicy", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
 });
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -88,7 +115,7 @@ builder.Services.AddAuthentication(options => {
                 }
                 catch
                 {
-                    
+                   
                 }
             }
 
@@ -101,6 +128,8 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+app.UseExceptionHandler();
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -109,10 +138,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseCors("FlowLensCors");
-
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
 app.MapHub<AnalysisHub>("/analysisHub");
 

@@ -2,12 +2,13 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace FlowLens.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("GlobalIpPolicy")]
 public class AuthController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -16,17 +17,15 @@ public class AuthController : ControllerBase
     public AuthController(IMediator mediator, IDataProtectionProvider provider, IConfiguration configuration)
     {
         _mediator = mediator;
-
         var secretKey = configuration["SecuritySettings:CookieEncryptionKey"]
-                        ?? throw new ArgumentNullException("CookieEncryptionKey eksik!");
+                        ?? throw new InvalidOperationException("SecuritySettings:CookieEncryptionKey is missing in configuration!");
         _protector = provider.CreateProtector(secretKey);
     }
 
     [HttpPost("github-login")]
     public async Task<IActionResult> LoginWithGitHub([FromBody] string code)
     {
-        if (string.IsNullOrEmpty(code))
-            return BadRequest("Kod boş.");
+       
 
         var command = new LoginWithGitHubCommand(code);
         var result = await _mediator.Send(command);
@@ -37,15 +36,23 @@ public class AuthController : ControllerBase
 
             var cookieOptions = new CookieOptions
             {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.None,
-                Expires = DateTime.UtcNow.AddDays(7)
+                HttpOnly = true,   
+                Secure = true,    
+                SameSite = SameSiteMode.Strict,
+                Expires = DateTime.UtcNow.AddDays(7),
+                Path = "/" 
             };
 
             Response.Cookies.Append("_fl_ctx_9x", encryptedToken, cookieOptions);
         }
 
-        return Ok(new { Message = "Giriş başarılı!" });
+        return Ok(new { Message = "Giriş işlemi başarıyla tamamlandı." });
+    }
+
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        Response.Cookies.Delete("_fl_ctx_9x");
+        return Ok(new { Message = "Oturum kapatıldı." });
     }
 }
