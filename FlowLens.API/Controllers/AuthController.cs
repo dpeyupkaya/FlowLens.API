@@ -25,8 +25,6 @@ public class AuthController : ControllerBase
     [HttpPost("github-login")]
     public async Task<IActionResult> LoginWithGitHub([FromBody] string code)
     {
-       
-
         var command = new LoginWithGitHubCommand(code);
         var result = await _mediator.Send(command);
 
@@ -36,11 +34,11 @@ public class AuthController : ControllerBase
 
             var cookieOptions = new CookieOptions
             {
-                HttpOnly = true,   
-                Secure = true,    
-                SameSite = SameSiteMode.Strict,
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.None,
                 Expires = DateTime.UtcNow.AddDays(7),
-                Path = "/" 
+                Path = "/"
             };
 
             Response.Cookies.Append("_fl_ctx_9x", encryptedToken, cookieOptions);
@@ -52,7 +50,17 @@ public class AuthController : ControllerBase
     [HttpPost("logout")]
     public IActionResult Logout()
     {
-        Response.Cookies.Delete("_fl_ctx_9x");
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.None,
+            Expires = DateTime.UtcNow.AddDays(-1), 
+            Path = "/"
+        };
+
+        Response.Cookies.Append("_fl_ctx_9x", "", cookieOptions);
+
         return Ok(new { Message = "Oturum kapatıldı." });
     }
 }

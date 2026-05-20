@@ -43,19 +43,11 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
                 throw new Exception("Kullanıcının GitHub erişim izni (token) bulunamadı.");
             }
 
-            var userLocalTime = DateTime.UtcNow.AddMinutes(-request.TimezoneOffsetMinutes);
-            var userToday = userLocalTime.Date;
-
-            if (user.LastAnalysisDate.Date != userToday)
-            {
-                user.DailyAnalysisCount = 0;
-                user.LastAnalysisDate = userToday;
-            }
-
             if (user.DailyAnalysisCount >= MAX_DAILY_ANALYSIS_LIMIT)
             {
-                throw new Exception($"Günlük analiz limitinize ({MAX_DAILY_ANALYSIS_LIMIT}/{MAX_DAILY_ANALYSIS_LIMIT}) ulaştınız. Lütfen yerel saatinizle yarın tekrar deneyin.");
+                throw new Exception($"Günlük analiz limitinize ({MAX_DAILY_ANALYSIS_LIMIT}/{MAX_DAILY_ANALYSIS_LIMIT}) ulaştınız. Limitleriniz gece 00:00'da sıfırlanacaktır.");
             }
+
             await _progressService.NotifyAsync("Depo erişim yetkileri doğrulanıyor...");
             var (isAccessible, isPrivate) = await _gitHubService.VerifyRepoAccessAsync(request.RepoUrl, user.GitHubAccessToken);
 
@@ -67,7 +59,9 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
             {
                 await _progressService.NotifyAsync("Özel (Private) depo algılandı. Güvenli analiz ortamı hazırlanıyor...");
             }
+
             user.DailyAnalysisCount++;
+            user.LastAnalysisDate = DateTime.UtcNow; 
             await _userRepository.UpdateAsync(user);
 
             var workspaceId = Guid.NewGuid().ToString();
@@ -143,6 +137,7 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
                     await _userRepository.UpdateAsync(user);
                     await _progressService.NotifyAsync("Analiz başarısız olduğu için hakkınız iade edildi.");
                 }
+
                 if (Directory.Exists(tempPath))
                 {
                     await _progressService.NotifyAsync("Geçici çalışma dizini ve ilgili kaynaklar temizleniyor.");

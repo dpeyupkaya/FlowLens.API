@@ -27,6 +27,7 @@ namespace FlowLens.Infrastructure
             services.AddHttpClient<IGitHubService, GitHubService>();
             services.AddSignalR();
             services.AddScoped<ICodeAnalyzerService, RoslynAnalyzerService>();
+            services.AddHostedService<DailyLimitResetWorker>();
 
             return services;
         }

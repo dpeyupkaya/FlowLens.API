@@ -2,15 +2,15 @@ using FlowLens.Application;
 using FlowLens.Infrastructure;
 using FlowLens.Infrastructure.Hubs;
 using FlowLens.Persistence;
-using FlowLens.API.Middlewares; 
+using FlowLens.API.Middlewares;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Scalar.AspNetCore;
 using System.Text;
-using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
+using FlowLens.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,20 +21,22 @@ if (!string.IsNullOrEmpty(azurePort))
 }
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddProblemDetails(); 
+builder.Services.AddProblemDetails();
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddDataProtection();
+builder.Services.AddHostedService<DailyLimitResetWorker>();
 
 builder.Services.AddCors(options => {
     options.AddPolicy("FlowLensCors", policy => {
+
         policy.WithOrigins("https://localhost:5173")
-               // policy.WithOrigins("https://flow-lens-ui.vercel.app")
+       // policy.WithOrigins("https://flow-lens-ui.vercel.app")
                .AllowAnyHeader()
                .AllowAnyMethod()
-               .AllowCredentials();
+               .AllowCredentials(); 
     });
 });
 
@@ -92,7 +94,7 @@ builder.Services.AddAuthentication(options => {
         ValidateIssuerSigningKey = true,
         ValidIssuer = jwtSettings["Issuer"],
         ValidAudience = jwtSettings["Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Secret"]!))
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Secret"] ?? "GIZLI_ANAHTAR_BULUNAMADI_1234567890!"))
     };
 
     options.Events = new JwtBearerEvents
@@ -107,15 +109,15 @@ builder.Services.AddAuthentication(options => {
                 {
                     var dataProtectionProvider = context.HttpContext.RequestServices.GetRequiredService<IDataProtectionProvider>();
 
-                    var protectorKey = securitySettings["CookieEncryptionKey"];
+                    var protectorKey = securitySettings["CookieEncryptionKey"] ?? "FlowLens_Fallback_Protector_Key_99!";
                     var protector = dataProtectionProvider.CreateProtector(protectorKey);
 
                     var decryptedJwt = protector.Unprotect(cookieToken);
                     context.Token = decryptedJwt;
                 }
-                catch
+                catch (Exception ex)
                 {
-                   
+                    Console.WriteLine($"[FlowLens Auth Hata]: Token çözülemedi: {ex.Message}");
                 }
             }
 
@@ -137,6 +139,14 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCookiePolicy(new CookiePolicyOptions
+{
+    MinimumSameSitePolicy = SameSiteMode.None,
+    Secure = CookieSecurePolicy.Always,
+    HttpOnly = Microsoft.AspNetCore.CookiePolicy.HttpOnlyPolicy.Always
+});
+
 app.UseCors("FlowLensCors");
 app.UseRateLimiter();
 app.UseAuthentication();
