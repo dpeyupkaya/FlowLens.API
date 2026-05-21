@@ -7,7 +7,7 @@ using System.Security.Claims;
 
 namespace FlowLens.Api.Controllers;
 
-[Authorize] 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 [EnableRateLimiting("GlobalIpPolicy")]
@@ -20,7 +20,7 @@ public class AnalysisController : ControllerBase
         _mediator = mediator;
     }
 
-    public record AnalyzeRequestDto(string RepoUrl, List<string>? IgnoredFolders, int? MaxDepth, int TimezoneOffsetMinutes);
+    public record AnalyzeRequestDto(string RepoUrl, List<string>? IgnoredFolders, int? MaxDepth, int TimezoneOffsetMinutes, string AnalysisId);
 
     [HttpPost("start")]
     public async Task<IActionResult> StartAnalysis([FromBody] AnalyzeRequestDto request)
@@ -32,8 +32,11 @@ public class AnalysisController : ControllerBase
             userId,
             request.IgnoredFolders,
             request.MaxDepth,
+            request.AnalysisId,
             request.TimezoneOffsetMinutes
+            
         );
+
         var report = await _mediator.Send(command);
 
         return Ok(report);

@@ -57,8 +57,7 @@ public class LoginWithGitHubCommandHandler : IRequestHandler<LoginWithGitHubComm
             flowLensToken,
             user.Username,
             user.AvatarUrl,
-            user.Email,
-            githubAccessToken 
+            user.Email
         );
     }
 }

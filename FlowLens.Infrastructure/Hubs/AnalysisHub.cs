@@ -1,12 +1,19 @@
-﻿using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
 
-namespace FlowLens.Infrastructure.Hubs;
+namespace FlowLens.Infrastructure.SignalR;
 
+[Authorize]
 public class AnalysisHub : Hub
 {
-    public override async Task OnConnectedAsync()
+    public async Task SubscribeToAnalysis(string analysisId)
     {
-        await Clients.Caller.SendAsync("ReceiveAnalysisLog", " Bağlantı stabil.");
-        await base.OnConnectedAsync();
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, analysisId);
+    }
+
+    public async Task UnsubscribeFromAnalysis(string analysisId)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, analysisId);
     }
 }

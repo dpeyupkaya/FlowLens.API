@@ -33,16 +33,28 @@ namespace FlowLens.API.Middlewares
                 _ => (int)HttpStatusCode.InternalServerError
             };
 
+            var isDevelopment = _env.IsDevelopment();
+            string safeMessage;
+
+            if (exception is FluentValidation.ValidationException valEx)
+            {
+                safeMessage = string.Join(" | ", valEx.Errors.Select(e => e.ErrorMessage));
+            }
+            else if (statusCode == (int)HttpStatusCode.InternalServerError && !isDevelopment)
+            {
+                safeMessage = "Sistemde beklenmeyen bir hata oluştu. Lütfen daha sonra tekrar deneyin.";
+            }
+            else
+            {
+                safeMessage = exception.Message;
+            }
+
             var errorResponse = new ErrorDetails
             {
                 StatusCode = statusCode,
                 Error = GetErrorTitle(statusCode),
-
-                Message = exception is FluentValidation.ValidationException valEx
-                    ? string.Join(" | ", valEx.Errors.Select(e => e.ErrorMessage))
-                    : exception.Message,
-
-                Details = _env.IsDevelopment() ? exception.StackTrace : null
+                Message = safeMessage, 
+                Details = isDevelopment ? exception.StackTrace : null 
             };
 
             httpContext.Response.ContentType = "application/json";

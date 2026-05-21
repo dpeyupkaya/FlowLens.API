@@ -1,14 +1,16 @@
-﻿using FlowLens.Application.Features.Analysis.DTOs;
+﻿using FlowLens.Application.Common.Interfaces;
+using FlowLens.Application.Features.Analysis.DTOs;
+using FlowLens.Application.Interfaces;
 using FlowLens.Application.Interfaces.External;
 using FlowLens.Application.Interfaces.Infrastructure;
 using FlowLens.Domain.Repositories;
 using MediatR;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 
 namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 {
@@ -35,7 +37,7 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
         public async Task<AnalysisReportDto> Handle(AnalyzeRepoCommand request, CancellationToken cancellationToken)
         {
-            await _progressService.NotifyAsync("Analiz motoru hazırlık süreci başladı.");
+            await _progressService.NotifyAsync(request.AnalysisId, "Analiz motoru hazırlık süreci başladı.");
 
             var user = await _userRepository.GetByIdAsync(request.UserId);
             if (user == null || string.IsNullOrEmpty(user.GitHubAccessToken))
@@ -48,7 +50,7 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
                 throw new Exception($"Günlük analiz limitinize ({MAX_DAILY_ANALYSIS_LIMIT}/{MAX_DAILY_ANALYSIS_LIMIT}) ulaştınız. Limitleriniz gece 00:00'da sıfırlanacaktır.");
             }
 
-            await _progressService.NotifyAsync("Depo erişim yetkileri doğrulanıyor...");
+            await _progressService.NotifyAsync(request.AnalysisId, "Depo erişim yetkileri doğrulanıyor...");
             var (isAccessible, isPrivate) = await _gitHubService.VerifyRepoAccessAsync(request.RepoUrl, user.GitHubAccessToken);
 
             if (!isAccessible)
@@ -57,11 +59,11 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
             }
             if (isPrivate)
             {
-                await _progressService.NotifyAsync("Özel (Private) depo algılandı. Güvenli analiz ortamı hazırlanıyor...");
+                await _progressService.NotifyAsync(request.AnalysisId, "Özel (Private) depo algılandı. Güvenli analiz ortamı hazırlanıyor...");
             }
 
             user.DailyAnalysisCount++;
-            user.LastAnalysisDate = DateTime.UtcNow; 
+            user.LastAnalysisDate = DateTime.UtcNow;
             await _userRepository.UpdateAsync(user);
 
             var workspaceId = Guid.NewGuid().ToString();
@@ -80,13 +82,13 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
                 Directory.CreateDirectory(tempPath);
 
-                await _progressService.NotifyAsync("Proje meta verileri ve GitHub istatistikleri toplanıyor...");
+                await _progressService.NotifyAsync(request.AnalysisId, "Proje meta verileri ve GitHub istatistikleri toplanıyor...");
                 var repoStats = await _gitHubService.GetRepoStatsAsync(request.RepoUrl, user.GitHubAccessToken);
 
-                await _progressService.NotifyAsync("Kaynak kod deposu indirme ve dışa aktarma işlemi yürütülüyor.");
+                await _progressService.NotifyAsync(request.AnalysisId, "Kaynak kod deposu indirme ve dışa aktarma işlemi yürütülüyor.");
                 await _gitHubService.DownloadAndExtractRepoAsync(request.RepoUrl, user.GitHubAccessToken, tempPath);
 
-                await _progressService.NotifyAsync("Dosya meta verileri ve kod metrikleri hesaplanıyor.");
+                await _progressService.NotifyAsync(request.AnalysisId, "Dosya meta verileri ve kod metrikleri hesaplanıyor.");
 
                 var allFiles = Directory.GetFiles(tempPath, "*.cs", SearchOption.AllDirectories);
                 var csharpFiles = allFiles.Where(file =>
@@ -102,11 +104,11 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
                     totalLines += lines.Length;
                 }
 
-                await _progressService.NotifyAsync($"Statik tarama sonucunda {csharpFiles.Length} dosya ve {totalLines} satır kod analiz kapsamına alındı.");
+                await _progressService.NotifyAsync(request.AnalysisId, $"Statik tarama sonucunda {csharpFiles.Length} dosya ve {totalLines} satır kod analiz kapsamına alındı.");
 
-                var codeGraph = await _codeAnalyzerService.AnalyzeStructureAsync(tempPath, finalIgnoredFolders, finalMaxDepth, dbSettings);
+                var codeGraph = await _codeAnalyzerService.AnalyzeStructureAsync(request.AnalysisId, tempPath, finalIgnoredFolders, finalMaxDepth, dbSettings);
 
-                await _progressService.NotifyAsync("Proje yapısal analizi ve haritalama işlemi başarıyla tamamlandı.");
+                await _progressService.NotifyAsync(request.AnalysisId, "Proje yapısal analizi ve haritalama işlemi başarıyla tamamlandı.");
 
                 isAnalysisSuccessful = true;
 
@@ -126,7 +128,7 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
             }
             catch (Exception ex)
             {
-                await _progressService.NotifyAsync($"[HATA] Analiz süreci başarısız oldu: {ex.Message}");
+                await _progressService.NotifyAsync(request.AnalysisId, $"[HATA] Analiz süreci başarısız oldu: {ex.Message}");
                 throw new Exception(ex.Message);
             }
             finally
@@ -135,12 +137,12 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
                 {
                     user.DailyAnalysisCount--;
                     await _userRepository.UpdateAsync(user);
-                    await _progressService.NotifyAsync("Analiz başarısız olduğu için hakkınız iade edildi.");
+                    await _progressService.NotifyAsync(request.AnalysisId, "Analiz başarısız olduğu için hakkınız iade edildi.");
                 }
 
                 if (Directory.Exists(tempPath))
                 {
-                    await _progressService.NotifyAsync("Geçici çalışma dizini ve ilgili kaynaklar temizleniyor.");
+                    await _progressService.NotifyAsync(request.AnalysisId, "Geçici çalışma dizini ve ilgili kaynaklar temizleniyor.");
                     Directory.Delete(tempPath, true);
                 }
             }

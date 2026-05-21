@@ -1,5 +1,5 @@
-﻿using FlowLens.Application.Interfaces.Infrastructure;
-using FlowLens.Infrastructure.Hubs;
+﻿using FlowLens.Application.Interfaces;
+using FlowLens.Infrastructure.SignalR;
 using Microsoft.AspNetCore.SignalR;
 
 namespace FlowLens.Infrastructure.Services;
@@ -13,8 +13,8 @@ public class AnalysisProgressService : IAnalysisProgressService
         _hubContext = hubContext;
     }
 
-    public async Task NotifyAsync(string message)
-    { 
-        await _hubContext.Clients.All.SendAsync("ReceiveAnalysisLog", message);
+    public async Task NotifyAsync(string analysisId, string message)
+    {
+        await _hubContext.Clients.Group(analysisId).SendAsync("ReceiveLog", message);
     }
 }

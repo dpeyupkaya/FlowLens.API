@@ -1,8 +1,6 @@
-﻿
-namespace FlowLens.Application.Interfaces.Infrastructure
+﻿namespace FlowLens.Application.Interfaces;
+
+public interface IAnalysisProgressService
 {
-    public interface IAnalysisProgressService
-    {
-        Task NotifyAsync(string message);
-    }
-}
+    Task NotifyAsync(string analysisId, string message);
+}   

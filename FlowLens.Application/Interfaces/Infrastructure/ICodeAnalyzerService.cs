@@ -7,5 +7,5 @@ public interface ICodeAnalyzerService
 {
 
 
-    Task<CodeGraphDto> AnalyzeStructureAsync(string directoryPath, List<string> ignoredFolders, int maxDepth, AnalysisPreferences settings = null);
+    Task<CodeGraphDto> AnalyzeStructureAsync(string analysisId, string directoryPath, List<string> ignoredFolders, int maxDepth, AnalysisPreferences settings = null);
 }

@@ -1,4 +1,6 @@
-﻿using FlowLens.Application.Interfaces.Auth;
+﻿using FlowLens.Application.Common.Interfaces;
+using FlowLens.Application.Interfaces;
+using FlowLens.Application.Interfaces.Auth;
 using FlowLens.Application.Interfaces.External;
 using FlowLens.Application.Interfaces.Infrastructure;
 using FlowLens.Infrastructure.Analysis.Core;
@@ -23,6 +25,7 @@ namespace FlowLens.Infrastructure
 
             services.AddScoped<IAnalysisProgressService, AnalysisProgressService>();
             services.AddScoped<ITokenService, TokenService>();
+            services.AddScoped<IEncryptionService,EncryptionService>();
             services.AddScoped<RoslynAnalyzerEngine>();
             services.AddHttpClient<IGitHubService, GitHubService>();
             services.AddSignalR();

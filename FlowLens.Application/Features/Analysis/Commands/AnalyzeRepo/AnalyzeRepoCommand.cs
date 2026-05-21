@@ -10,5 +10,6 @@ public record AnalyzeRepoCommand(
     Guid UserId,
     List<string> IgnoredFolders,
     int? MaxDepth,
+    string AnalysisId,
     int TimezoneOffsetMinutes = 0 
 ) : IRequest<AnalysisReportDto>;

@@ -1,6 +1,6 @@
 using FlowLens.Application;
 using FlowLens.Infrastructure;
-using FlowLens.Infrastructure.Hubs;
+using FlowLens.Infrastructure.SignalR;
 using FlowLens.Persistence;
 using FlowLens.API.Middlewares;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -11,6 +11,7 @@ using Scalar.AspNetCore;
 using System.Text;
 using System.Threading.RateLimiting;
 using FlowLens.Infrastructure.Services;
+using Microsoft.AspNetCore.Mvc; // 🚀 EKLENDİ: AutoValidateAntiforgeryTokenAttribute için gerekli
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,25 +23,31 @@ if (!string.IsNullOrEmpty(azurePort))
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
-
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddDataProtection();
 builder.Services.AddHostedService<DailyLimitResetWorker>();
 
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-XSRF-TOKEN"; 
+});
+
 builder.Services.AddCors(options => {
     options.AddPolicy("FlowLensCors", policy => {
-
         policy.WithOrigins("https://localhost:5173")
-       // policy.WithOrigins("https://flow-lens-ui.vercel.app")
+               // policy.WithOrigins("https://flow-lens-ui.vercel.app")
                .AllowAnyHeader()
                .AllowAnyMethod()
-               .AllowCredentials(); 
+               .AllowCredentials();
     });
 });
 
-builder.Services.AddControllers();
+builder.Services.AddControllersWithViews(options =>
+{
+    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
+});
 
 builder.Services.AddOpenApi(options => {
     options.AddDocumentTransformer((document, context, cancellationToken) => {
@@ -81,6 +88,18 @@ builder.Services.AddRateLimiter(options =>
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var securitySettings = builder.Configuration.GetSection("SecuritySettings");
 
+var jwtSecret = jwtSettings["Secret"];
+if (string.IsNullOrEmpty(jwtSecret))
+{
+    throw new InvalidOperationException("KRİTİK GÜVENLİK HATASI: 'JwtSettings:Secret' konfigürasyonu bulunamadı! Sistem güvenli olarak ayağa kalkamaz.");
+}
+
+var cookieProtectorKey = securitySettings["CookieEncryptionKey"];
+if (string.IsNullOrEmpty(cookieProtectorKey))
+{
+    throw new InvalidOperationException("KRİTİK GÜVENLİK HATASI: 'SecuritySettings:CookieEncryptionKey' konfigürasyonu bulunamadı! Sistem güvenli olarak ayağa kalkamaz.");
+}
+
 builder.Services.AddAuthentication(options => {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -94,7 +113,7 @@ builder.Services.AddAuthentication(options => {
         ValidateIssuerSigningKey = true,
         ValidIssuer = jwtSettings["Issuer"],
         ValidAudience = jwtSettings["Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Secret"] ?? "GIZLI_ANAHTAR_BULUNAMADI_1234567890!"))
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
     };
 
     options.Events = new JwtBearerEvents
@@ -108,10 +127,7 @@ builder.Services.AddAuthentication(options => {
                 try
                 {
                     var dataProtectionProvider = context.HttpContext.RequestServices.GetRequiredService<IDataProtectionProvider>();
-
-                    var protectorKey = securitySettings["CookieEncryptionKey"] ?? "FlowLens_Fallback_Protector_Key_99!";
-                    var protector = dataProtectionProvider.CreateProtector(protectorKey);
-
+                    var protector = dataProtectionProvider.CreateProtector(cookieProtectorKey);
                     var decryptedJwt = protector.Unprotect(cookieToken);
                     context.Token = decryptedJwt;
                 }
@@ -120,7 +136,6 @@ builder.Services.AddAuthentication(options => {
                     Console.WriteLine($"[FlowLens Auth Hata]: Token çözülemedi: {ex.Message}");
                 }
             }
-
             return Task.CompletedTask;
         }
     };
@@ -149,8 +164,12 @@ app.UseCookiePolicy(new CookiePolicyOptions
 
 app.UseCors("FlowLensCors");
 app.UseRateLimiter();
+
+app.UseAntiforgery();
+
 app.UseAuthentication();
 app.UseAuthorization();
+
 app.MapControllers();
 app.MapHub<AnalysisHub>("/analysisHub");
 
