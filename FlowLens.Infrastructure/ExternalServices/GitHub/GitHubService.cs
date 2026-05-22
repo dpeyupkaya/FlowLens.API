@@ -10,6 +10,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+
 using System.Threading.Tasks;
 
 public class GitHubService : IGitHubService
@@ -94,7 +95,7 @@ public class GitHubService : IGitHubService
         }
     }
 
-    public async Task DownloadAndExtractRepoAsync(string repoUrl, string accessToken, string extractPath)
+    public async Task DownloadAndExtractRepoAsync(string repoUrl, string accessToken, string extractPath, CancellationToken cancellationToken = default)
     {
         var uri = new Uri(repoUrl);
         var segments = uri.AbsolutePath.Trim('/').Split('/');
@@ -113,10 +114,10 @@ public class GitHubService : IGitHubService
         }
         request.Headers.UserAgent.ParseAdd("FlowLens-App");
 
-        var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        const long maxZipSizeBytes = 50 * 1024 * 1024; 
+        const long maxZipSizeBytes = 50 * 1024 * 1024;
         var contentLength = response.Content.Headers.ContentLength;
         if (contentLength.HasValue && contentLength.Value > maxZipSizeBytes)
         {
@@ -125,20 +126,20 @@ public class GitHubService : IGitHubService
 
         var tempZipPath = Path.Combine(extractPath, "repo.zip");
 
-        using (var stream = await response.Content.ReadAsStreamAsync())
+        using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken))
         using (var fileStream = new FileStream(tempZipPath, FileMode.Create, FileAccess.Write, FileShare.None))
         {
             byte[] buffer = new byte[8192];
             long totalBytesRead = 0;
             int bytesRead;
-            while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
             {
                 totalBytesRead += bytesRead;
                 if (totalBytesRead > maxZipSizeBytes)
                 {
                     throw new InvalidOperationException("Depo indirme limiti aşıldı. Dosya çok büyük.");
                 }
-                await fileStream.WriteAsync(buffer, 0, bytesRead);
+                await fileStream.WriteAsync(buffer, 0, bytesRead, cancellationToken);
             }
         }
 
@@ -148,17 +149,25 @@ public class GitHubService : IGitHubService
         };
 
         long totalExtractedSize = 0;
-        const long maxExtractedSizeBytes = 150 * 1024 * 1024; 
+        int extractedFileCount = 0; 
+        const long maxExtractedSizeBytes = 150 * 1024 * 1024;
+        const int maxExtractedFileCount = 5000; 
 
         using (var archive = ZipFile.OpenRead(tempZipPath))
         {
             foreach (var entry in archive.Entries)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (string.IsNullOrEmpty(entry.Name)) continue;
 
                 var extension = Path.GetExtension(entry.Name);
-
                 if (!allowedExtensions.Contains(extension)) continue;
+
+                if (++extractedFileCount > maxExtractedFileCount)
+                {
+                    throw new InvalidOperationException($"Güvenlik İhlali: Maksimum dosya sayısı ({maxExtractedFileCount}) aşıldı! İşlem durduruldu.");
+                }
 
                 totalExtractedSize += entry.Length;
                 if (totalExtractedSize > maxExtractedSizeBytes)

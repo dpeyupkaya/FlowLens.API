@@ -1,4 +1,5 @@
-﻿using FlowLens.Application.Common.Interfaces;
+﻿using FlowLens.API.Services;
+using FlowLens.Application.Common.Interfaces;
 using FlowLens.Application.Interfaces;
 using FlowLens.Application.Interfaces.Auth;
 using FlowLens.Application.Interfaces.External;
@@ -31,6 +32,7 @@ namespace FlowLens.Infrastructure
             services.AddSignalR();
             services.AddScoped<ICodeAnalyzerService, RoslynAnalyzerService>();
             services.AddHostedService<DailyLimitResetWorker>();
+            services.AddScoped<ICurrentUserService, CurrentUserService>();
 
             return services;
         }

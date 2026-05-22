@@ -11,7 +11,7 @@ namespace FlowLens.Application.Interfaces.External
 
         Task<(bool IsAccessible, bool IsPrivate)> VerifyRepoAccessAsync(string repoUrl, string accessToken);
 
-        Task DownloadAndExtractRepoAsync(string repoUrl, string accessToken, string extractPath);
+        Task DownloadAndExtractRepoAsync(string repoUrl, string accessToken, string extractPath, CancellationToken cancellationToken = default);
         Task<RepoStatsDto> GetRepoStatsAsync(string repoUrl, string accessToken);
     }
 }

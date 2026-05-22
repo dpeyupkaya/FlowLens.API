@@ -29,7 +29,6 @@ public class AnalysisController : ControllerBase
 
         var command = new AnalyzeRepoCommand(
             request.RepoUrl,
-            userId,
             request.IgnoredFolders,
             request.MaxDepth,
             request.AnalysisId,

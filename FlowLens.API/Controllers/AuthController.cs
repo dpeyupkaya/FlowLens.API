@@ -98,7 +98,6 @@ public class AuthController : ControllerBase
                 SameSite = SameSiteMode.None,
                 Path = "/"
             };
-
             Response.Cookies.Append("Xflwns-snwf", tokens.RequestToken!, xsrfCookieOptions);
         }
 
@@ -108,7 +107,7 @@ public class AuthController : ControllerBase
     [HttpPost("logout")]
     public IActionResult Logout()
     {
-        var cookieOptions = new CookieOptions
+        var jwtCookieOptions = new CookieOptions
         {
             HttpOnly = true,
             Secure = true,
@@ -116,10 +115,17 @@ public class AuthController : ControllerBase
             Expires = DateTime.UtcNow.AddDays(-1),
             Path = "/"
         };
+        Response.Cookies.Append("_fl_ctx_9x", "", jwtCookieOptions);
 
-        Response.Cookies.Append("_fl_ctx_9x", "", cookieOptions);
-
-        Response.Cookies.Append("Xflwns-snwf", "", cookieOptions);
+        var xsrfCookieOptions = new CookieOptions
+        {
+            HttpOnly = false,
+            Secure = true,
+            SameSite = SameSiteMode.None,
+            Expires = DateTime.UtcNow.AddDays(-1),
+            Path = "/"
+        };
+        Response.Cookies.Append("Xflwns-snwf", "", xsrfCookieOptions);
 
         return Ok(new { Message = "Oturum kapatıldı." });
     }

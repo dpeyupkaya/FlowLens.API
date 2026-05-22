@@ -6,9 +6,11 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FlowLens.Infrastructure.Analysis.Core;
@@ -22,14 +24,18 @@ public class RoslynAnalyzerEngine
         _hubContext = hubContext;
     }
 
-    private async Task SendLog(string analysisId, string message)
+    private async Task SendLog(string analysisId, string message, CancellationToken cancellationToken = default)
     {
-        await _hubContext.Clients.Group(analysisId).SendAsync("ReceiveAnalysisLog", message);
+        try
+        {
+            await _hubContext.Clients.Group(analysisId).SendAsync("ReceiveAnalysisLog", message, cancellationToken);
+        }
+        catch (TaskCanceledException) {  }
     }
 
-    public async Task<CodeGraphDto> AnalyzeAsync(string analysisId, string directoryPath, List<string> ignoredFolders, int maxDepth, AnalysisPreferences settings)
+    public async Task<CodeGraphDto> AnalyzeAsync(string analysisId, string directoryPath, List<string> ignoredFolders, int maxDepth, AnalysisPreferences settings, CancellationToken cancellationToken = default)
     {
-        await SendLog(analysisId, $"[SİSTEM] Analiz motoru başlatıldı. (Derinlik Seviyesi: {maxDepth})");
+        await SendLog(analysisId, $"[SİSTEM] Analiz motoru başlatıldı. (Derinlik Seviyesi: {maxDepth})", cancellationToken);
 
         var allNodes = new List<NodeDto>();
         var allEdges = new List<EdgeDto>();
@@ -37,14 +43,23 @@ public class RoslynAnalyzerEngine
 
         var files = GetProjectFiles(directoryPath, ignoredFolders);
 
-        await SendLog(analysisId, $"[BİLGİ] {files.Count} adet C# dosyası tespit edildi. Bellek içi derleme hazırlanıyor...");
+        await SendLog(analysisId, $"[BİLGİ] {files.Count} adet C# dosyası tespit edildi. Bellek içi derleme hazırlanıyor...", cancellationToken);
 
-        var syntaxTreeTasks = files.Select(async file =>
+        var syntaxTreesBag = new ConcurrentBag<SyntaxTree>();
+        var parallelOptions = new ParallelOptions
         {
-            var code = await File.ReadAllTextAsync(file);
-            return CSharpSyntaxTree.ParseText(code, path: file);
+            MaxDegreeOfParallelism = Environment.ProcessorCount,
+            CancellationToken = cancellationToken
+        };
+
+        await Parallel.ForEachAsync(files, parallelOptions, async (file, ct) =>
+        {
+            var code = await File.ReadAllTextAsync(file, ct);
+            var tree = CSharpSyntaxTree.ParseText(code, path: file, cancellationToken: ct);
+            syntaxTreesBag.Add(tree);
         });
-        var syntaxTrees = (await Task.WhenAll(syntaxTreeTasks)).ToList();
+
+        var syntaxTrees = syntaxTreesBag.ToList();
 
         var compilation = CSharpCompilation.Create("FlowLensCompilation")
             .AddSyntaxTrees(syntaxTrees)
@@ -54,41 +69,55 @@ public class RoslynAnalyzerEngine
                 MetadataReference.CreateFromFile(typeof(Console).Assembly.Location)
             );
 
-        await SendLog(analysisId, "[BİLGİ] Sanal derleme tamamlandı. Mimari bağlar (Semantic) çözümleniyor...");
+        await SendLog(analysisId, "[BİLGİ] Sanal derleme tamamlandı. Mimari bağlar (Semantic) çözümleniyor...", cancellationToken);
 
         int processedFiles = 0;
         foreach (var tree in syntaxTrees)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             processedFiles++;
             if (processedFiles % 5 == 0 || files.Count < 10)
             {
-                await SendLog(analysisId, $"[BİLGİ] Çözümleniyor: {Path.GetFileName(tree.FilePath)} [{processedFiles}/{files.Count}]");
+                await SendLog(analysisId, $"[BİLGİ] Çözümleniyor: {Path.GetFileName(tree.FilePath)} [{processedFiles}/{files.Count}]", cancellationToken);
             }
 
-            var root = await tree.GetRootAsync();
-            var semanticModel = compilation.GetSemanticModel(tree);
+            using var fileCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            fileCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-            var structWalker = new StructureWalker(semanticModel, maxDepth);
-            structWalker.Visit(root);
-            allNodes.AddRange(structWalker.Nodes);
-            allEdges.AddRange(structWalker.Edges);
-
-            var relationshipWalker = new RelationshipWalker(semanticModel, maxDepth);
-            relationshipWalker.Visit(root);
-            allEdges.AddRange(relationshipWalker.Edges);
-
-            if (maxDepth >= 3)
+            try
             {
-                var metricsWalker = new MetricsWalker(semanticModel);
-                metricsWalker.Visit(root);
-                foreach (var metric in metricsWalker.MethodMetrics)
+                var root = await tree.GetRootAsync(fileCts.Token);
+                var semanticModel = compilation.GetSemanticModel(tree);
+
+                var structWalker = new StructureWalker(semanticModel, maxDepth);
+                structWalker.Visit(root);
+                allNodes.AddRange(structWalker.Nodes);
+                allEdges.AddRange(structWalker.Edges);
+
+                var relationshipWalker = new RelationshipWalker(semanticModel, maxDepth);
+                relationshipWalker.Visit(root);
+                allEdges.AddRange(relationshipWalker.Edges);
+
+                if (maxDepth >= 3)
                 {
-                    allMetrics[metric.Key] = metric.Value;
+                    var metricsWalker = new MetricsWalker(semanticModel);
+                    metricsWalker.Visit(root);
+                    foreach (var metric in metricsWalker.MethodMetrics)
+                    {
+                        allMetrics[metric.Key] = metric.Value;
+                    }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                if (cancellationToken.IsCancellationRequested) throw;
+
+                await SendLog(analysisId, $"[UYARI] Zaman aşımı (Karmaşık Dosya): {Path.GetFileName(tree.FilePath)} atlandı.", cancellationToken);
             }
         }
 
-        await SendLog(analysisId, "[BİLGİ] Yapısal bütünlük kontrolü ve akıllı filtreleme devrede...");
+        await SendLog(analysisId, "[BİLGİ] Yapısal bütünlük kontrolü ve akıllı filtreleme devrede...", cancellationToken);
 
         if (settings != null && !settings.ShowExternalLibs)
         {
@@ -99,7 +128,7 @@ public class RoslynAnalyzerEngine
         var distinctNodes = allNodes.DistinctBy(n => n.Id).ToList();
         var distinctEdges = allEdges.DistinctBy(e => new { e.Source, e.Target, e.RelationType }).ToList();
 
-        await SendLog(analysisId, $"[BAŞARI] Analiz başarıyla tamamlandı. Saf mimari haritası {distinctNodes.Count} düğüm ile hazır.");
+        await SendLog(analysisId, $"[BAŞARI] Analiz başarıyla tamamlandı. Saf mimari haritası {distinctNodes.Count} düğüm ile hazır.", cancellationToken);
 
         return new CodeGraphDto(distinctNodes, distinctEdges);
     }

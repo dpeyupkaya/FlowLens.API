@@ -5,12 +5,6 @@ using FlowLens.Application.Interfaces.External;
 using FlowLens.Application.Interfaces.Infrastructure;
 using FlowLens.Domain.Repositories;
 using MediatR;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 {
@@ -20,6 +14,7 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
         private readonly ICodeAnalyzerService _codeAnalyzerService;
         private readonly IAnalysisProgressService _progressService;
         private readonly IUserRepository _userRepository;
+        private readonly ICurrentUserService _currentUserService;
 
         private const int MAX_DAILY_ANALYSIS_LIMIT = 5;
 
@@ -27,27 +22,39 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
             IGitHubService gitHubService,
             ICodeAnalyzerService codeAnalyzerService,
             IAnalysisProgressService progressService,
-            IUserRepository userRepository)
+            IUserRepository userRepository,
+            ICurrentUserService currentUserService)
         {
             _gitHubService = gitHubService;
             _codeAnalyzerService = codeAnalyzerService;
             _progressService = progressService;
             _userRepository = userRepository;
+            _currentUserService = currentUserService;
         }
 
         public async Task<AnalysisReportDto> Handle(AnalyzeRepoCommand request, CancellationToken cancellationToken)
         {
             await _progressService.NotifyAsync(request.AnalysisId, "Analiz motoru hazırlık süreci başladı.");
 
-            var user = await _userRepository.GetByIdAsync(request.UserId);
-            if (user == null || string.IsNullOrEmpty(user.GitHubAccessToken))
+            var userId = _currentUserService.UserId;
+
+            if (string.IsNullOrEmpty(userId))
             {
-                throw new Exception("Kullanıcının GitHub erişim izni (token) bulunamadı.");
+                throw new UnauthorizedAccessException("Oturum bilgisi doğrulanamadı. Lütfen giriş yaptığınızdan emin olun.");
             }
+
+            var userIdString = _currentUserService.UserId;
+
+            if (string.IsNullOrEmpty(userIdString) || !Guid.TryParse(userIdString, out var userGuid))
+            {
+                throw new UnauthorizedAccessException("Oturum bilgisi doğrulanamadı. Lütfen giriş yaptığınızdan emin olun.");
+            }
+
+            var user = await _userRepository.GetByIdAsync(userGuid);
 
             if (user.DailyAnalysisCount >= MAX_DAILY_ANALYSIS_LIMIT)
             {
-                throw new Exception($"Günlük analiz limitinize ({MAX_DAILY_ANALYSIS_LIMIT}/{MAX_DAILY_ANALYSIS_LIMIT}) ulaştınız. Limitleriniz gece 00:00'da sıfırlanacaktır.");
+                throw new InvalidOperationException($"Günlük analiz limitinize ({MAX_DAILY_ANALYSIS_LIMIT}/{MAX_DAILY_ANALYSIS_LIMIT}) ulaştınız. Limitleriniz gece 00:00'da sıfırlanacaktır.");
             }
 
             await _progressService.NotifyAsync(request.AnalysisId, "Depo erişim yetkileri doğrulanıyor...");
@@ -55,7 +62,7 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
             if (!isAccessible)
             {
-                throw new Exception("Bu depoya erişim sağlanamadı. Depo mevcut olmayabilir veya (Private ise) görüntüleme yetkiniz bulunmuyor olabilir.");
+                throw new InvalidOperationException("Bu depoya erişim sağlanamadı. Depo mevcut olmayabilir veya (Private ise) görüntüleme yetkiniz bulunmuyor olabilir.");
             }
             if (isPrivate)
             {
@@ -129,7 +136,8 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
             catch (Exception ex)
             {
                 await _progressService.NotifyAsync(request.AnalysisId, $"[HATA] Analiz süreci başarısız oldu: {ex.Message}");
-                throw new Exception(ex.Message);
+              
+                throw;
             }
             finally
             {

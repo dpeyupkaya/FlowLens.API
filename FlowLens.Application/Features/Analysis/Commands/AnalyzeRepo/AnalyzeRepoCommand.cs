@@ -7,7 +7,6 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo;
 
 public record AnalyzeRepoCommand(
     string RepoUrl,
-    Guid UserId,
     List<string> IgnoredFolders,
     int? MaxDepth,
     string AnalysisId,

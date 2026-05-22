@@ -1,17 +1,19 @@
+using FlowLens.API.Middlewares;
 using FlowLens.Application;
 using FlowLens.Infrastructure;
+using FlowLens.Infrastructure.Services;
 using FlowLens.Infrastructure.SignalR;
 using FlowLens.Persistence;
-using FlowLens.API.Middlewares;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Scalar.AspNetCore;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
-using FlowLens.Infrastructure.Services;
-using Microsoft.AspNetCore.Mvc; // 🚀 EKLENDİ: AutoValidateAntiforgeryTokenAttribute için gerekli
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,9 +31,16 @@ builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddDataProtection();
 builder.Services.AddHostedService<DailyLimitResetWorker>();
 
+builder.Services.AddHttpContextAccessor();
+
 builder.Services.AddAntiforgery(options =>
 {
-    options.HeaderName = "X-XSRF-TOKEN"; 
+    options.HeaderName = "X-Xflwns-snwf";
+
+    options.Cookie.Name = "Antiforgery.FlowLens";
+    options.Cookie.SameSite = SameSiteMode.None; 
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always; 
+    options.Cookie.HttpOnly = true;
 });
 
 builder.Services.AddCors(options => {
@@ -47,6 +56,10 @@ builder.Services.AddCors(options => {
 builder.Services.AddControllersWithViews(options =>
 {
     options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
+})
+.ConfigureApiBehaviorOptions(options =>
+{
+    options.SuppressModelStateInvalidFilter = true;
 });
 
 builder.Services.AddOpenApi(options => {
@@ -69,20 +82,45 @@ builder.Services.AddOpenApi(options => {
     });
 });
 
+
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
     options.AddPolicy("GlobalIpPolicy", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    {
+        if (httpContext.Request.Method == HttpMethods.Options)
+        {
+            return RateLimitPartition.GetNoLimiter("OptionsBypass");
+        }
+
+        var userId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        if (!string.IsNullOrEmpty(userId))
+        {
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: userId,
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 60, 
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    QueueLimit = 0
+                });
+        }
+
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ip,
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 30,
+                PermitLimit = 10, 
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
-            }));
+            });
+    });
 });
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -155,20 +193,40 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseRouting();
+
 app.UseCookiePolicy(new CookiePolicyOptions
 {
     MinimumSameSitePolicy = SameSiteMode.None,
     Secure = CookieSecurePolicy.Always,
-    HttpOnly = Microsoft.AspNetCore.CookiePolicy.HttpOnlyPolicy.Always
+    HttpOnly = Microsoft.AspNetCore.CookiePolicy.HttpOnlyPolicy.None 
 });
 
 app.UseCors("FlowLensCors");
 app.UseRateLimiter();
-
-app.UseAntiforgery();
-
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseAntiforgery();
+
+app.Use(async (context, next) =>
+{
+    var antiforgery = context.RequestServices.GetRequiredService<IAntiforgery>();
+    var tokens = antiforgery.GetAndStoreTokens(context);
+
+    if (tokens.RequestToken != null)
+    { 
+        context.Response.Cookies.Append("Xflwns-snwf", tokens.RequestToken,
+            new CookieOptions
+            {
+                HttpOnly = false,
+                Secure = true,
+                SameSite = SameSiteMode.None,
+                Path = "/"
+            });
+    }
+
+    await next();
+});
 
 app.MapControllers();
 app.MapHub<AnalysisHub>("/analysisHub");

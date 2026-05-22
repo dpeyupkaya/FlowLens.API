@@ -11,8 +11,6 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
                 .Matches(@"^(https?:\/\/)?(www\.)?github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9_.-]+(\.git)?(\/)?$")
                 .WithMessage("Lütfen geçerli bir GitHub depo adresi girin. (Örn: https://github.com/facebook/react)");
 
-            RuleFor(x => x.UserId)
-                .NotEmpty().WithMessage("Oturum bilgisi doğrulanamadı. Lütfen giriş yaptığınızdan emin olun.");
 
             RuleFor(x => x.MaxDepth)
                 .InclusiveBetween(1, 10)
