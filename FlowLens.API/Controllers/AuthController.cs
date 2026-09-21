@@ -1,4 +1,4 @@
-﻿using FlowLens.Application.Features.Auth.Commands.LoginWithGitHub;
+using FlowLens.Application.Features.Auth.Commands.LoginWithGitHub;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.DataProtection;
@@ -102,6 +102,13 @@ public class AuthController : ControllerBase
         }
 
         return Ok(new { Message = "Giriş işlemi başarıyla tamamlandı." });
+    }
+
+    [HttpGet("csrf")]
+    public IActionResult GetCsrfToken()
+    {
+        var tokens = _antiforgery.GetAndStoreTokens(HttpContext);
+        return Ok(new { csrfToken = tokens.RequestToken });
     }
 
     [HttpPost("logout")]

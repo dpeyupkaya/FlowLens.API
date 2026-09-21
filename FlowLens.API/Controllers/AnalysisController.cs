@@ -1,9 +1,12 @@
-﻿using FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo;
+using FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
+using System.Collections.Generic;
+using System;
+using System.Threading.Tasks;
 
 namespace FlowLens.Api.Controllers;
 
@@ -20,7 +23,7 @@ public class AnalysisController : ControllerBase
         _mediator = mediator;
     }
 
-    public record AnalyzeRequestDto(string RepoUrl, List<string>? IgnoredFolders, int? MaxDepth, int TimezoneOffsetMinutes, string AnalysisId);
+    public record AnalyzeRequestDto(string RepoUrl, List<string>? IgnoredFolders, int? MaxDepth, int TimezoneOffsetMinutes, string AnalysisId, string? TargetLanguage = "CSharp");
 
     [HttpPost("start")]
     public async Task<IActionResult> StartAnalysis([FromBody] AnalyzeRequestDto request)
@@ -32,8 +35,8 @@ public class AnalysisController : ControllerBase
             request.IgnoredFolders,
             request.MaxDepth,
             request.AnalysisId,
+            request.TargetLanguage,
             request.TimezoneOffsetMinutes
-            
         );
 
         var report = await _mediator.Send(command);

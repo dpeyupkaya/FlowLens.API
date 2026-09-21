@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace FlowLens.Application.Interfaces.External
 {
@@ -7,6 +7,7 @@ namespace FlowLens.Application.Interfaces.External
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("html_url")] string HtmlUrl,
         [property: JsonPropertyName("description")] string? Description,
-        [property: JsonPropertyName("language")] string? Language
+        [property: JsonPropertyName("language")] string? Language,
+        [property: JsonPropertyName("url")] string? Url
     );
 }

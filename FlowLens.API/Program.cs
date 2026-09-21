@@ -45,8 +45,7 @@ builder.Services.AddAntiforgery(options =>
 
 builder.Services.AddCors(options => {
     options.AddPolicy("FlowLensCors", policy => {
-        policy.WithOrigins("https://localhost:5173")
-               // policy.WithOrigins("https://flow-lens-ui.vercel.app")
+        policy.WithOrigins("https://localhost:5173", "https://www.flowlens.com.tr")
                .AllowAnyHeader()
                .AllowAnyMethod()
                .AllowCredentials();
@@ -182,6 +181,11 @@ builder.Services.AddAuthentication(options => {
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+});
 
 app.UseExceptionHandler();
 

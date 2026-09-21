@@ -1,4 +1,4 @@
-﻿using FlowLens.API.Services;
+using FlowLens.API.Services;
 using FlowLens.Application.Common.Interfaces;
 using FlowLens.Application.Interfaces;
 using FlowLens.Application.Interfaces.Auth;
@@ -9,15 +9,9 @@ using FlowLens.Infrastructure.Auth;
 using FlowLens.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace FlowLens.Infrastructure
 {
-
     public static class ServiceRegistration
     {
         public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
@@ -30,7 +24,11 @@ namespace FlowLens.Infrastructure
             services.AddScoped<RoslynAnalyzerEngine>();
             services.AddHttpClient<IGitHubService, GitHubService>();
             services.AddSignalR();
-            services.AddScoped<ICodeAnalyzerService, RoslynAnalyzerService>();
+            
+            // Register Strategies
+            services.AddScoped<IProjectAnalyzerStrategy, CSharpAnalyzerStrategy>();
+            services.AddScoped<IProjectAnalyzerStrategy, TreeSitterPythonAnalyzerStrategy>();
+
             services.AddHostedService<DailyLimitResetWorker>();
             services.AddScoped<ICurrentUserService, CurrentUserService>();
 

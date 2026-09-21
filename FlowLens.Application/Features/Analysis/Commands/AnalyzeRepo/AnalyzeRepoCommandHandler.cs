@@ -1,17 +1,23 @@
-﻿using FlowLens.Application.Common.Interfaces;
+using FlowLens.Application.Common.Interfaces;
 using FlowLens.Application.Features.Analysis.DTOs;
 using FlowLens.Application.Interfaces;
 using FlowLens.Application.Interfaces.External;
 using FlowLens.Application.Interfaces.Infrastructure;
 using FlowLens.Domain.Repositories;
 using MediatR;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 {
     public class AnalyzeRepoCommandHandler : IRequestHandler<AnalyzeRepoCommand, AnalysisReportDto>
     {
         private readonly IGitHubService _gitHubService;
-        private readonly ICodeAnalyzerService _codeAnalyzerService;
+        private readonly IEnumerable<IProjectAnalyzerStrategy> _analyzers;
         private readonly IAnalysisProgressService _progressService;
         private readonly IUserRepository _userRepository;
         private readonly ICurrentUserService _currentUserService;
@@ -20,13 +26,13 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
         public AnalyzeRepoCommandHandler(
             IGitHubService gitHubService,
-            ICodeAnalyzerService codeAnalyzerService,
+            IEnumerable<IProjectAnalyzerStrategy> analyzers,
             IAnalysisProgressService progressService,
             IUserRepository userRepository,
             ICurrentUserService currentUserService)
         {
             _gitHubService = gitHubService;
-            _codeAnalyzerService = codeAnalyzerService;
+            _analyzers = analyzers;
             _progressService = progressService;
             _userRepository = userRepository;
             _currentUserService = currentUserService;
@@ -35,13 +41,6 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
         public async Task<AnalysisReportDto> Handle(AnalyzeRepoCommand request, CancellationToken cancellationToken)
         {
             await _progressService.NotifyAsync(request.AnalysisId, "Analiz motoru hazırlık süreci başladı.");
-
-            var userId = _currentUserService.UserId;
-
-            if (string.IsNullOrEmpty(userId))
-            {
-                throw new UnauthorizedAccessException("Oturum bilgisi doğrulanamadı. Lütfen giriş yaptığınızdan emin olun.");
-            }
 
             var userIdString = _currentUserService.UserId;
 
@@ -62,11 +61,35 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
             if (!isAccessible)
             {
-                throw new InvalidOperationException("Bu depoya erişim sağlanamadı. Depo mevcut olmayabilir veya (Private ise) görüntüleme yetkiniz bulunmuyor olabilir.");
+                throw new InvalidOperationException("Güvenlik İhlali: Bu depoya erişim sağlanamadı. Depo mevcut olmayabilir veya (Private ise) görüntüleme yetkiniz bulunmuyor olabilir. Lütfen geçerli ve yetkiniz olan bir bağlantı girin.");
             }
             if (isPrivate)
             {
                 await _progressService.NotifyAsync(request.AnalysisId, "Özel (Private) depo algılandı. Güvenli analiz ortamı hazırlanıyor...");
+            }
+
+            await _progressService.NotifyAsync(request.AnalysisId, "Proje meta verileri ve dili tespit ediliyor...");
+            var repoStats = await _gitHubService.GetRepoStatsAsync(request.RepoUrl, user.GitHubAccessToken);
+
+            string detectedLanguage = repoStats.PrimaryLanguage ?? "";
+            
+            // Map GitHub language to our strategy names
+            string mappedLanguage = detectedLanguage.ToLower() switch
+            {
+                "c#" => "CSharp",
+                "python" => "Python",
+                _ => ""
+            };
+
+            if (string.IsNullOrEmpty(mappedLanguage))
+            {
+                throw new InvalidOperationException($"Maalesef şu anda '{detectedLanguage}' dili desteklenmiyor. Bu dilin analizi çok yakında gelecek!");
+            }
+
+            var strategy = _analyzers.FirstOrDefault(a => string.Equals(a.SupportedLanguage, mappedLanguage, StringComparison.OrdinalIgnoreCase));
+            if (strategy == null)
+            {
+                throw new InvalidOperationException($"Seçilen dil ({mappedLanguage}) için analiz motoru bulunamadı.");
             }
 
             user.DailyAnalysisCount++;
@@ -89,31 +112,30 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
                 Directory.CreateDirectory(tempPath);
 
-                await _progressService.NotifyAsync(request.AnalysisId, "Proje meta verileri ve GitHub istatistikleri toplanıyor...");
-                var repoStats = await _gitHubService.GetRepoStatsAsync(request.RepoUrl, user.GitHubAccessToken);
-
                 await _progressService.NotifyAsync(request.AnalysisId, "Kaynak kod deposu indirme ve dışa aktarma işlemi yürütülüyor.");
-                await _gitHubService.DownloadAndExtractRepoAsync(request.RepoUrl, user.GitHubAccessToken, tempPath);
+                await _gitHubService.DownloadAndExtractRepoAsync(request.RepoUrl, user.GitHubAccessToken, tempPath, cancellationToken);
 
                 await _progressService.NotifyAsync(request.AnalysisId, "Dosya meta verileri ve kod metrikleri hesaplanıyor.");
 
-                var allFiles = Directory.GetFiles(tempPath, "*.cs", SearchOption.AllDirectories);
-                var csharpFiles = allFiles.Where(file =>
+                var extension = mappedLanguage.Equals("Python", StringComparison.OrdinalIgnoreCase) ? "*.py" : "*.cs";
+                
+                var allFiles = Directory.GetFiles(tempPath, extension, SearchOption.AllDirectories);
+                var targetFiles = allFiles.Where(file =>
                 {
                     var normalizedPath = file.Replace("\\", "/");
                     return !finalIgnoredFolders.Any(folder => normalizedPath.Contains($"/{folder}/", StringComparison.OrdinalIgnoreCase));
                 }).ToArray();
 
                 int totalLines = 0;
-                foreach (var file in csharpFiles)
+                foreach (var file in targetFiles)
                 {
                     var lines = await File.ReadAllLinesAsync(file, cancellationToken);
                     totalLines += lines.Length;
                 }
 
-                await _progressService.NotifyAsync(request.AnalysisId, $"Statik tarama sonucunda {csharpFiles.Length} dosya ve {totalLines} satır kod analiz kapsamına alındı.");
+                await _progressService.NotifyAsync(request.AnalysisId, $"Statik tarama sonucunda {targetFiles.Length} dosya ve {totalLines} satır kod analiz kapsamına alındı.");
 
-                var codeGraph = await _codeAnalyzerService.AnalyzeStructureAsync(request.AnalysisId, tempPath, finalIgnoredFolders, finalMaxDepth, dbSettings);
+                var codeGraph = await strategy.AnalyzeStructureAsync(request.AnalysisId, tempPath, finalIgnoredFolders, finalMaxDepth, dbSettings);
 
                 await _progressService.NotifyAsync(request.AnalysisId, "Proje yapısal analizi ve haritalama işlemi başarıyla tamamlandı.");
 
@@ -121,7 +143,7 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
                 return new AnalysisReportDto(
                     RepoUrl: request.RepoUrl,
-                    TotalFilesScanned: csharpFiles.Length,
+                    TotalFilesScanned: targetFiles.Length,
                     TotalLinesOfCode: totalLines,
                     Graph: codeGraph,
                     Issues: new List<string>
@@ -136,7 +158,6 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
             catch (Exception ex)
             {
                 await _progressService.NotifyAsync(request.AnalysisId, $"[HATA] Analiz süreci başarısız oldu: {ex.Message}");
-              
                 throw;
             }
             finally

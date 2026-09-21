@@ -1,4 +1,4 @@
-﻿using FlowLens.Application.Features.Analysis.DTOs;
+using FlowLens.Application.Features.Analysis.DTOs;
 using FlowLens.Application.Interfaces.External;
 using FlowLens.Infrastructure.ExternalServices.GitHub.Models;
 using Microsoft.Extensions.Configuration;
@@ -52,6 +52,44 @@ public class GitHubService : IGitHubService
 
         var allRepos = await response.Content.ReadFromJsonAsync<List<GitHubRepoResponse>>()
                        ?? new List<GitHubRepoResponse>();
+
+        var reposToFix = allRepos.Where(r => string.IsNullOrEmpty(r.Language) && !string.IsNullOrEmpty(r.Url)).ToList();
+        if (reposToFix.Any())
+        {
+            var tasks = reposToFix.Select(async repo =>
+            {
+                try
+                {
+                    var langReq = new HttpRequestMessage(HttpMethod.Get, $"{repo.Url}/languages");
+                    langReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.Trim());
+                    langReq.Headers.UserAgent.ParseAdd("FlowLens-App");
+
+                    var langRes = await _httpClient.SendAsync(langReq);
+                    if (langRes.IsSuccessStatusCode)
+                    {
+                        var langDoc = await JsonDocument.ParseAsync(await langRes.Content.ReadAsStreamAsync());
+                        var topLang = langDoc.RootElement.EnumerateObject().OrderByDescending(x => x.Value.GetInt32()).FirstOrDefault();
+                        if (topLang.Name != null)
+                        {
+                            return repo with { Language = topLang.Name };
+                        }
+                    }
+                }
+                catch { }
+                return repo;
+            });
+
+            var fixedRepos = await Task.WhenAll(tasks);
+            
+            for (int i = 0; i < allRepos.Count; i++)
+            {
+                var fixedRepo = fixedRepos.FirstOrDefault(r => r.Id == allRepos[i].Id);
+                if (fixedRepo != null)
+                {
+                    allRepos[i] = fixedRepo;
+                }
+            }
+        }
 
         return allRepos;
     }
@@ -145,7 +183,7 @@ public class GitHubService : IGitHubService
 
         var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            ".cs", ".csproj", ".sln", ".json", ".xml", ".md", ".txt"
+            ".cs", ".csproj", ".sln", ".json", ".xml", ".md", ".txt", ".py"
         };
 
         long totalExtractedSize = 0;
@@ -215,12 +253,41 @@ public class GitHubService : IGitHubService
 
         var jsonDoc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
         var root = jsonDoc.RootElement;
+        
+        var primaryLang = root.TryGetProperty("language", out var lang) && lang.ValueKind != JsonValueKind.Null 
+            ? lang.GetString()! 
+            : null;
+
+        if (string.IsNullOrEmpty(primaryLang))
+        {
+            try
+            {
+                var langRequest = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/languages");
+                if (!string.IsNullOrEmpty(accessToken))
+                {
+                    langRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.Trim());
+                }
+                langRequest.Headers.UserAgent.ParseAdd("FlowLens-App");
+
+                var langResponse = await _httpClient.SendAsync(langRequest);
+                if (langResponse.IsSuccessStatusCode)
+                {
+                    var langDoc = await JsonDocument.ParseAsync(await langResponse.Content.ReadAsStreamAsync());
+                    var topLang = langDoc.RootElement.EnumerateObject().OrderByDescending(x => x.Value.GetInt32()).FirstOrDefault();
+                    if (topLang.Name != null)
+                    {
+                        primaryLang = topLang.Name;
+                    }
+                }
+            }
+            catch { }
+        }
 
         return new RepoStatsDto(
             Stars: root.TryGetProperty("stargazers_count", out var stars) ? stars.GetInt32() : 0,
             Forks: root.TryGetProperty("forks_count", out var forks) ? forks.GetInt32() : 0,
             OpenIssues: root.TryGetProperty("open_issues_count", out var issues) ? issues.GetInt32() : 0,
-            PrimaryLanguage: root.TryGetProperty("language", out var lang) && lang.ValueKind != JsonValueKind.Null ? lang.GetString()! : "Bilinmiyor",
+            PrimaryLanguage: primaryLang ?? "Bilinmiyor",
             CreatedAt: root.TryGetProperty("created_at", out var createdAt) ? createdAt.GetDateTime() : DateTime.MinValue,
             LastPushedAt: root.TryGetProperty("pushed_at", out var pushedAt) ? pushedAt.GetDateTime() : DateTime.MinValue,
             DefaultBranch: root.TryGetProperty("default_branch", out var branch) ? branch.GetString()! : "main"

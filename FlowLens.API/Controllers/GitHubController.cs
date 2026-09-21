@@ -1,4 +1,4 @@
-﻿using FlowLens.Application.Features.GitHub.Queries.GetCSharpRepos;
+using FlowLens.Application.Features.GitHub.Queries.GetUserRepos;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,15 +20,15 @@ public class GitHubController : ControllerBase
         _mediator = mediator;
     }
 
-    [HttpGet("csharp-repos")]
-    public async Task<IActionResult> GetCSharpRepos()
+    [HttpGet("repos")]
+    public async Task<IActionResult> GetUserRepos([FromQuery] string language = "All")
     {
         var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
         if (!Guid.TryParse(userIdString, out var userId))
             throw new UnauthorizedAccessException("Kimlik bilginiz okunamadı, lütfen tekrar giriş yapın.");
 
-        var query = new GetCSharpReposQuery(userId);
+        var query = new GetUserReposQuery(userId, language);
 
         var repos = await _mediator.Send(query);
 

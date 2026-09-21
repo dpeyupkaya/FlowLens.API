@@ -1,6 +1,5 @@
-﻿using FlowLens.Application.Features.Analysis.DTOs;
+using FlowLens.Application.Features.Analysis.DTOs;
 using MediatR;
-using System;
 using System.Collections.Generic;
 
 namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo;
@@ -10,5 +9,6 @@ public record AnalyzeRepoCommand(
     List<string> IgnoredFolders,
     int? MaxDepth,
     string AnalysisId,
+    string? TargetLanguage = "CSharp",
     int TimezoneOffsetMinutes = 0 
 ) : IRequest<AnalysisReportDto>;
