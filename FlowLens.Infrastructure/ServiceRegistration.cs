@@ -28,6 +28,7 @@ namespace FlowLens.Infrastructure
             // Register Strategies
             services.AddScoped<IProjectAnalyzerStrategy, CSharpAnalyzerStrategy>();
             services.AddScoped<IProjectAnalyzerStrategy, TreeSitterPythonAnalyzerStrategy>();
+            services.AddScoped<IProjectAnalyzerStrategy, GoAnalyzerStrategy>();
 
             services.AddHostedService<DailyLimitResetWorker>();
             services.AddScoped<ICurrentUserService, CurrentUserService>();

@@ -1,4 +1,4 @@
-﻿using FluentValidation;
+using FluentValidation;
 
 namespace FlowLens.Application.Features.Users.Commands.UpdateUserSettings;
 
@@ -24,7 +24,7 @@ public class UpdateUserSettingsCommandValidator : AbstractValidator<UpdateUserSe
         
 
         RuleFor(x => x.Settings.Data.RepoVisibility)
-            .Must(x => new[] { "All", "Public", "Private" }.Contains(x))
+            .Must(x => new[] { "All", "Public", "Private" }.Contains(x, StringComparer.OrdinalIgnoreCase))
             .WithMessage("Geçersiz depo görünürlük ayarı.");
     }
 }

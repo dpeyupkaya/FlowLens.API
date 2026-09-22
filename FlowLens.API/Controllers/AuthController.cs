@@ -3,7 +3,6 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.AspNetCore.Antiforgery; 
 
 namespace FlowLens.Api.Controllers;
 
@@ -15,13 +14,13 @@ public class AuthController : ControllerBase
     private readonly IMediator _mediator;
     private readonly IDataProtector _protector;
     private readonly IConfiguration _configuration;
-    private readonly IAntiforgery _antiforgery; 
+    private readonly IWebHostEnvironment _env;
 
-    public AuthController(IMediator mediator, IDataProtectionProvider provider, IConfiguration configuration, IAntiforgery antiforgery)
+    public AuthController(IMediator mediator, IDataProtectionProvider provider, IConfiguration configuration, IWebHostEnvironment env)
     {
         _mediator = mediator;
         _configuration = configuration;
-        _antiforgery = antiforgery;
+        _env = env;
 
         var secretKey = configuration["SecuritySettings:CookieEncryptionKey"]
                         ?? throw new InvalidOperationException("SecuritySettings:CookieEncryptionKey is missing in configuration!");
@@ -38,8 +37,8 @@ public class AuthController : ControllerBase
         var cookieOptions = new CookieOptions
         {
             HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.None,
+            Secure = !_env.IsDevelopment(),
+            SameSite = _env.IsDevelopment() ? SameSiteMode.Lax : SameSiteMode.None,
             Expires = DateTime.UtcNow.AddMinutes(10),
             Path = "/"
         };
@@ -52,7 +51,6 @@ public class AuthController : ControllerBase
         return Ok(new { Url = githubAuthUrl });
     }
 
-    [IgnoreAntiforgeryToken]
     [HttpPost("github-login")]
     public async Task<IActionResult> LoginWithGitHub([FromBody] GitHubLoginRequest request)
     {
@@ -81,34 +79,16 @@ public class AuthController : ControllerBase
             var authCookieOptions = new CookieOptions
             {
                 HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.None,
+                Secure = !_env.IsDevelopment(),
+                SameSite = _env.IsDevelopment() ? SameSiteMode.Lax : SameSiteMode.None,
                 Expires = DateTime.UtcNow.AddDays(7),
                 Path = "/"
             };
 
             Response.Cookies.Append("_fl_ctx_9x", encryptedToken, authCookieOptions);
-
-            var tokens = _antiforgery.GetAndStoreTokens(HttpContext);
-
-            var xsrfCookieOptions = new CookieOptions
-            {
-                HttpOnly = false, 
-                Secure = true,
-                SameSite = SameSiteMode.None,
-                Path = "/"
-            };
-            Response.Cookies.Append("Xflwns-snwf", tokens.RequestToken!, xsrfCookieOptions);
         }
 
         return Ok(new { Message = "Giriş işlemi başarıyla tamamlandı." });
-    }
-
-    [HttpGet("csrf")]
-    public IActionResult GetCsrfToken()
-    {
-        var tokens = _antiforgery.GetAndStoreTokens(HttpContext);
-        return Ok(new { csrfToken = tokens.RequestToken });
     }
 
     [HttpPost("logout")]
@@ -117,22 +97,12 @@ public class AuthController : ControllerBase
         var jwtCookieOptions = new CookieOptions
         {
             HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.None,
+            Secure = !_env.IsDevelopment(),
+            SameSite = _env.IsDevelopment() ? SameSiteMode.Lax : SameSiteMode.None,
             Expires = DateTime.UtcNow.AddDays(-1),
             Path = "/"
         };
         Response.Cookies.Append("_fl_ctx_9x", "", jwtCookieOptions);
-
-        var xsrfCookieOptions = new CookieOptions
-        {
-            HttpOnly = false,
-            Secure = true,
-            SameSite = SameSiteMode.None,
-            Expires = DateTime.UtcNow.AddDays(-1),
-            Path = "/"
-        };
-        Response.Cookies.Append("Xflwns-snwf", "", xsrfCookieOptions);
 
         return Ok(new { Message = "Oturum kapatıldı." });
     }

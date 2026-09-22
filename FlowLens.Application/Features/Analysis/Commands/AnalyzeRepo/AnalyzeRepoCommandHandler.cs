@@ -78,6 +78,7 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
             {
                 "c#" => "CSharp",
                 "python" => "Python",
+                "go" => "Go",
                 _ => ""
             };
 
@@ -117,7 +118,8 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
                 await _progressService.NotifyAsync(request.AnalysisId, "Dosya meta verileri ve kod metrikleri hesaplanıyor.");
 
-                var extension = mappedLanguage.Equals("Python", StringComparison.OrdinalIgnoreCase) ? "*.py" : "*.cs";
+                var extension = mappedLanguage.Equals("Python", StringComparison.OrdinalIgnoreCase) ? "*.py" :
+                                mappedLanguage.Equals("Go", StringComparison.OrdinalIgnoreCase) ? "*.go" : "*.cs";
                 
                 var allFiles = Directory.GetFiles(tempPath, extension, SearchOption.AllDirectories);
                 var targetFiles = allFiles.Where(file =>

@@ -4,7 +4,6 @@ using FlowLens.Infrastructure;
 using FlowLens.Infrastructure.Services;
 using FlowLens.Infrastructure.SignalR;
 using FlowLens.Persistence;
-using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
@@ -33,29 +32,18 @@ builder.Services.AddHostedService<DailyLimitResetWorker>();
 
 builder.Services.AddHttpContextAccessor();
 
-builder.Services.AddAntiforgery(options =>
-{
-    options.HeaderName = "X-Xflwns-snwf";
 
-    options.Cookie.Name = "Antiforgery.FlowLens";
-    options.Cookie.SameSite = SameSiteMode.None; 
-    options.Cookie.SecurePolicy = CookieSecurePolicy.Always; 
-    options.Cookie.HttpOnly = true;
-});
 
 builder.Services.AddCors(options => {
     options.AddPolicy("FlowLensCors", policy => {
-        policy.WithOrigins("https://localhost:5173", "https://www.flowlens.com.tr")
+        policy.WithOrigins("https://localhost:5173",  "https://www.flowlens.com.tr")
                .AllowAnyHeader()
                .AllowAnyMethod()
                .AllowCredentials();
     });
 });
 
-builder.Services.AddControllersWithViews(options =>
-{
-    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
-})
+builder.Services.AddControllersWithViews()
 .ConfigureApiBehaviorOptions(options =>
 {
     options.SuppressModelStateInvalidFilter = true;
@@ -210,27 +198,6 @@ app.UseCors("FlowLensCors");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseAntiforgery();
-
-app.Use(async (context, next) =>
-{
-    var antiforgery = context.RequestServices.GetRequiredService<IAntiforgery>();
-    var tokens = antiforgery.GetAndStoreTokens(context);
-
-    if (tokens.RequestToken != null)
-    { 
-        context.Response.Cookies.Append("Xflwns-snwf", tokens.RequestToken,
-            new CookieOptions
-            {
-                HttpOnly = false,
-                Secure = true,
-                SameSite = SameSiteMode.None,
-                Path = "/"
-            });
-    }
-
-    await next();
-});
 
 app.MapControllers();
 app.MapHub<AnalysisHub>("/analysisHub");

@@ -183,7 +183,7 @@ public class GitHubService : IGitHubService
 
         var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            ".cs", ".csproj", ".sln", ".json", ".xml", ".md", ".txt", ".py"
+            ".cs", ".csproj", ".sln", ".json", ".xml", ".md", ".txt", ".py", ".go", ".mod", ".sum"
         };
 
         long totalExtractedSize = 0;
