@@ -1,4 +1,4 @@
-﻿using FlowLens.Application.Features.Analysis.DTOs;
+using FlowLens.Application.Features.Analysis.DTOs;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
@@ -13,5 +13,6 @@ namespace FlowLens.Application.Interfaces.External
 
         Task DownloadAndExtractRepoAsync(string repoUrl, string accessToken, string extractPath, CancellationToken cancellationToken = default);
         Task<RepoStatsDto> GetRepoStatsAsync(string repoUrl, string accessToken);
+        Task<Dictionary<string, int>> GetRepoLanguagesAsync(string repoUrl, string accessToken);
     }
 }

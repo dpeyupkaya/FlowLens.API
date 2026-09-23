@@ -9,6 +9,6 @@ public record AnalyzeRepoCommand(
     List<string> IgnoredFolders,
     int? MaxDepth,
     string AnalysisId,
-    string? TargetLanguage = "CSharp",
+    List<string>? TargetLanguages = null,
     int TimezoneOffsetMinutes = 0 
 ) : IRequest<AnalysisReportDto>;

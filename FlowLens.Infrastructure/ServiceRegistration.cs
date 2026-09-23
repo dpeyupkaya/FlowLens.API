@@ -29,6 +29,8 @@ namespace FlowLens.Infrastructure
             services.AddScoped<IProjectAnalyzerStrategy, CSharpAnalyzerStrategy>();
             services.AddScoped<IProjectAnalyzerStrategy, TreeSitterPythonAnalyzerStrategy>();
             services.AddScoped<IProjectAnalyzerStrategy, GoAnalyzerStrategy>();
+            services.AddScoped<IProjectAnalyzerStrategy, JavaScriptAnalyzerStrategy>();
+            services.AddScoped<IProjectAnalyzerStrategy, HtmlCssAnalyzerStrategy>();
 
             services.AddHostedService<DailyLimitResetWorker>();
             services.AddScoped<ICurrentUserService, CurrentUserService>();

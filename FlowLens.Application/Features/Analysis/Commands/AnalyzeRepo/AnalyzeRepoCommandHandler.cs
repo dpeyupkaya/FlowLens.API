@@ -71,26 +71,47 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
             await _progressService.NotifyAsync(request.AnalysisId, "Proje meta verileri ve dili tespit ediliyor...");
             var repoStats = await _gitHubService.GetRepoStatsAsync(request.RepoUrl, user.GitHubAccessToken);
 
-            string detectedLanguage = repoStats.PrimaryLanguage ?? "";
-            
-            // Map GitHub language to our strategy names
-            string mappedLanguage = detectedLanguage.ToLower() switch
-            {
-                "c#" => "CSharp",
-                "python" => "Python",
-                "go" => "Go",
-                _ => ""
-            };
+            var targetLangs = request.TargetLanguages != null && request.TargetLanguages.Any() 
+                ? request.TargetLanguages 
+                : new List<string> { repoStats.PrimaryLanguage ?? "" };
 
-            if (string.IsNullOrEmpty(mappedLanguage))
+            var activeStrategies = new List<IProjectAnalyzerStrategy>();
+            var allExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var lang in targetLangs)
             {
-                throw new InvalidOperationException($"Maalesef şu anda '{detectedLanguage}' dili desteklenmiyor. Bu dilin analizi çok yakında gelecek!");
+                string mappedLanguage = lang.ToLower() switch
+                {
+                    "c#" or "csharp" => "CSharp",
+                    "python" => "Python",
+                    "go" => "Go",
+                    "javascript" or "typescript" => "JavaScript",
+                    "html" or "css" => "HTML_CSS",
+                    _ => ""
+                };
+
+                if (!string.IsNullOrEmpty(mappedLanguage))
+                {
+                    var strategy = _analyzers.FirstOrDefault(a => string.Equals(a.SupportedLanguage, mappedLanguage, StringComparison.OrdinalIgnoreCase));
+                    if (strategy != null && !activeStrategies.Contains(strategy))
+                    {
+                        activeStrategies.Add(strategy);
+                        var exts = mappedLanguage switch {
+                            "Python" => new[] { "*.py" },
+                            "Go" => new[] { "*.go" },
+                            "JavaScript" => new[] { "*.js", "*.jsx", "*.ts", "*.tsx", "*.mjs", "*.cjs" },
+                            "CSharp" => new[] { "*.cs" },
+                            "HTML_CSS" => new[] { "*.html", "*.htm", "*.css", "*.scss", "*.sass", "*.less" },
+                            _ => Array.Empty<string>()
+                        };
+                        foreach (var ext in exts) allExtensions.Add(ext);
+                    }
+                }
             }
 
-            var strategy = _analyzers.FirstOrDefault(a => string.Equals(a.SupportedLanguage, mappedLanguage, StringComparison.OrdinalIgnoreCase));
-            if (strategy == null)
+            if (!activeStrategies.Any())
             {
-                throw new InvalidOperationException($"Seçilen dil ({mappedLanguage}) için analiz motoru bulunamadı.");
+                throw new InvalidOperationException("Seçilen diller için uygun analiz motoru bulunamadı.");
             }
 
             user.DailyAnalysisCount++;
@@ -118,11 +139,13 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
                 await _progressService.NotifyAsync(request.AnalysisId, "Dosya meta verileri ve kod metrikleri hesaplanıyor.");
 
-                var extension = mappedLanguage.Equals("Python", StringComparison.OrdinalIgnoreCase) ? "*.py" :
-                                mappedLanguage.Equals("Go", StringComparison.OrdinalIgnoreCase) ? "*.go" : "*.cs";
+                var allFiles = new List<string>();
+                foreach (var ext in allExtensions)
+                {
+                    allFiles.AddRange(Directory.GetFiles(tempPath, ext, SearchOption.AllDirectories));
+                }
                 
-                var allFiles = Directory.GetFiles(tempPath, extension, SearchOption.AllDirectories);
-                var targetFiles = allFiles.Where(file =>
+                var targetFiles = allFiles.Distinct().Where(file =>
                 {
                     var normalizedPath = file.Replace("\\", "/");
                     return !finalIgnoredFolders.Any(folder => normalizedPath.Contains($"/{folder}/", StringComparison.OrdinalIgnoreCase));
@@ -137,7 +160,19 @@ namespace FlowLens.Application.Features.Analysis.Commands.AnalyzeRepo
 
                 await _progressService.NotifyAsync(request.AnalysisId, $"Statik tarama sonucunda {targetFiles.Length} dosya ve {totalLines} satır kod analiz kapsamına alındı.");
 
-                var codeGraph = await strategy.AnalyzeStructureAsync(request.AnalysisId, tempPath, finalIgnoredFolders, finalMaxDepth, dbSettings);
+                var mergedNodes = new List<NodeDto>();
+                var mergedEdges = new List<EdgeDto>();
+
+                foreach (var strategy in activeStrategies)
+                {
+                    var graph = await strategy.AnalyzeStructureAsync(request.AnalysisId, tempPath, finalIgnoredFolders, finalMaxDepth, dbSettings);
+                    mergedNodes.AddRange(graph.Nodes);
+                    mergedEdges.AddRange(graph.Edges);
+                }
+
+                var distinctNodes = mergedNodes.DistinctBy(n => n.Id).ToList();
+                var distinctEdges = mergedEdges.DistinctBy(e => new { e.Source, e.Target, e.RelationType }).ToList();
+                var codeGraph = new CodeGraphDto(distinctNodes, distinctEdges);
 
                 await _progressService.NotifyAsync(request.AnalysisId, "Proje yapısal analizi ve haritalama işlemi başarıyla tamamlandı.");
 

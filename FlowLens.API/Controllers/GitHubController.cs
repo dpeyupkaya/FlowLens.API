@@ -34,4 +34,16 @@ public class GitHubController : ControllerBase
 
         return Ok(repos);
     }
+
+    [HttpGet("repo-languages")]
+    public async Task<IActionResult> GetRepoLanguages([FromQuery] string repoUrl)
+    {
+        if (string.IsNullOrEmpty(repoUrl))
+            return BadRequest("repoUrl parametresi gereklidir.");
+
+        var query = new FlowLens.Application.Features.GitHub.Queries.GetRepoLanguages.GetRepoLanguagesQuery(repoUrl);
+        var languages = await _mediator.Send(query);
+
+        return Ok(languages);
+    }
 }

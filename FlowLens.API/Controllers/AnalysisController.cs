@@ -23,7 +23,7 @@ public class AnalysisController : ControllerBase
         _mediator = mediator;
     }
 
-    public record AnalyzeRequestDto(string RepoUrl, List<string>? IgnoredFolders, int? MaxDepth, int TimezoneOffsetMinutes, string AnalysisId, string? TargetLanguage = "CSharp");
+    public record AnalyzeRequestDto(string RepoUrl, List<string>? IgnoredFolders, int? MaxDepth, int TimezoneOffsetMinutes, string AnalysisId, List<string>? TargetLanguages = null);
 
     [HttpPost("start")]
     public async Task<IActionResult> StartAnalysis([FromBody] AnalyzeRequestDto request)
@@ -35,7 +35,7 @@ public class AnalysisController : ControllerBase
             request.IgnoredFolders,
             request.MaxDepth,
             request.AnalysisId,
-            request.TargetLanguage,
+            request.TargetLanguages,
             request.TimezoneOffsetMinutes
         );
 

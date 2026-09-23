@@ -183,7 +183,8 @@ public class GitHubService : IGitHubService
 
         var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            ".cs", ".csproj", ".sln", ".json", ".xml", ".md", ".txt", ".py", ".go", ".mod", ".sum"
+            ".cs", ".csproj", ".sln", ".json", ".xml", ".md", ".txt", ".py", ".go", ".mod", ".sum", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+            ".html", ".htm", ".css", ".scss", ".sass", ".less"
         };
 
         long totalExtractedSize = 0;
@@ -292,6 +293,39 @@ public class GitHubService : IGitHubService
             LastPushedAt: root.TryGetProperty("pushed_at", out var pushedAt) ? pushedAt.GetDateTime() : DateTime.MinValue,
             DefaultBranch: root.TryGetProperty("default_branch", out var branch) ? branch.GetString()! : "main"
         );
+    }
+
+    public async Task<Dictionary<string, int>> GetRepoLanguagesAsync(string repoUrl, string accessToken)
+    {
+        var uri = new Uri(repoUrl);
+        var segments = uri.AbsolutePath.Trim('/').Split('/');
+        if (segments.Length < 2)
+            throw new Exception("Geçersiz GitHub URL'si.");
+
+        var owner = segments[0];
+        var repoName = segments[1].Replace(".git", "");
+
+        var apiUrl = $"https://api.github.com/repos/{owner}/{repoName}/languages";
+        var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+
+        if (!string.IsNullOrEmpty(accessToken))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.Trim());
+        }
+        request.Headers.UserAgent.ParseAdd("FlowLens-App");
+
+        var response = await _httpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var jsonDoc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        var languages = new Dictionary<string, int>();
+
+        foreach (var prop in jsonDoc.RootElement.EnumerateObject())
+        {
+            languages[prop.Name] = prop.Value.GetInt32();
+        }
+
+        return languages;
     }
 
     private async Task<GitHubTokenResponse> GetAccessTokenAsync(string code)
